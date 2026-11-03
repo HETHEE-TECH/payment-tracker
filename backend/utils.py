@@ -49,6 +49,11 @@ def check_basic_auth(header: Optional[str], username: str, password: str) -> boo
     )
 
 
+def duplicate_key(name: str, amount: float, day: str):
+    """Two payments are duplicates when name (ignoring case and spaces), amount and date all match."""
+    return (re.sub(r"\s+", " ", name or "").strip().lower(), round(float(amount), 2), day)
+
+
 def next_day(day: str) -> str:
     return (date.fromisoformat(day) + timedelta(days=1)).isoformat()
 

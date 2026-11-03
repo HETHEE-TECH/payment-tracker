@@ -17,6 +17,7 @@ from schemas import ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
     decode_text,
+    duplicate_key,
     next_day,
     parse_import_text,
     parse_pdf,
@@ -75,6 +76,11 @@ async def require_login(request, call_next):
     return await call_next(request)
 
 
+def existing_keys(db) -> set:
+    rows = db.execute("SELECT name, amount, date FROM payments").fetchall()
+    return {duplicate_key(r["name"], r["amount"], r["date"]) for r in rows}
+
+
 def check_month(month: Optional[str]) -> None:
     if month is not None and not MONTH_PATTERN.match(month):
         raise HTTPException(status_code=422, detail="month must look like 2026-11")
@@ -96,6 +102,12 @@ def list_payments(month: Optional[str] = None, db: sqlite3.Connection = Depends(
 
 @app.post("/api/payments", response_model=PaymentOut, status_code=201)
 def create_payment(payload: PaymentCreate, db: sqlite3.Connection = Depends(get_db)):
+    new_key = duplicate_key(payload.name, payload.amount, payload.date.isoformat())
+    if new_key in existing_keys(db):
+        raise HTTPException(
+            status_code=409,
+            detail="This payment is already in the list (same name, amount and date).",
+        )
     cur = db.execute(
         "INSERT INTO payments (name, amount, date) VALUES (?, ?, ?)",
         (payload.name.strip(), payload.amount, payload.date.isoformat()),
@@ -127,6 +139,14 @@ def delete_payment(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Payment not found")
 
 
+@app.delete("/api/payments")
+def delete_all_payments(db: sqlite3.Connection = Depends(get_db)):
+    """Removes every payment. The frontend asks the user to confirm first."""
+    cur = db.execute("DELETE FROM payments")
+    db.commit()
+    return {"deleted": cur.rowcount}
+
+
 # ---------- import / export ----------
 
 @app.post("/api/payments/import")
@@ -139,10 +159,21 @@ def import_payments(payload: ImportRequest, db: sqlite3.Connection = Depends(get
         )
     if payload.replace:
         db.execute("DELETE FROM payments")
-    db.executemany("INSERT INTO payments (name, amount, date) VALUES (?, ?, ?)", good)
+        seen = set()
+    else:
+        seen = existing_keys(db)
+    new_rows, duplicates = [], 0
+    for name, amount, day in good:
+        key = duplicate_key(name, amount, day)
+        if key in seen:
+            duplicates += 1  # already in the list, or repeated inside this file
+            continue
+        seen.add(key)
+        new_rows.append((name, amount, day))
+    if new_rows:
+        db.executemany("INSERT INTO payments (name, amount, date) VALUES (?, ?, ?)", new_rows)
     db.commit()
-    first_month = min(day for _, _, day in good)[:7]
-    return {"imported": len(good), "skipped": skipped, "first_month": first_month}
+    return {"imported": len(new_rows), "skipped": skipped, "duplicates": duplicates}
 
 
 @app.post("/api/parse-file")
