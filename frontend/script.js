@@ -212,14 +212,31 @@ async function doImport(replace) {
   const text = document.getElementById("paste").value;
   try {
     const r = await api("/payments/import", { method: "POST", body: JSON.stringify({ text, replace }) });
-    msg.textContent = `Imported ${r.imported} ${r.imported === 1 ? "payment" : "payments"}.` +
-      (r.skipped ? ` Skipped ${r.skipped} line${r.skipped === 1 ? "" : "s"} that could not be read.` : "");
+    const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    msg.textContent = r.imported
+      ? `Imported ${plural(r.imported, "payment")}.`
+      : `Nothing new to add. ${plural(r.duplicates, "payment")} already in the list.`;
+    if (r.imported && r.duplicates) msg.textContent += ` Skipped ${plural(r.duplicates, "duplicate")} (same name, amount and date).`;
+    if (r.skipped) msg.textContent += ` Skipped ${plural(r.skipped, "line")} that could not be read.`;
     document.getElementById("paste").value = "";
     refresh();
   } catch (err) {
     msg.textContent = err.message;
   }
 }
+document.getElementById("del-all").addEventListener("click", async () => {
+  const msg = document.getElementById("del-msg");
+  if (!allItems.length) { msg.textContent = "There are no payments to delete."; return; }
+  if (!window.confirm(`Delete all ${allItems.length} payments? This cannot be undone.\n\nTip: use Download CSV first if you want a backup.`)) return;
+  try {
+    const r = await api("/payments", { method: "DELETE" });
+    msg.textContent = `Deleted ${r.deleted} ${r.deleted === 1 ? "payment" : "payments"}.`;
+    refresh();
+  } catch (err) {
+    msg.textContent = err.message;
+  }
+});
+
 document.getElementById("imp-add").addEventListener("click", () => doImport(false));
 document.getElementById("imp-replace").addEventListener("click", () => doImport(true));
 

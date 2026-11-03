@@ -59,6 +59,14 @@
           <div class="row-actions"><a class="btn" href="/api/export.csv" download>Download payments.csv</a></div>
         </div>
       </details>
+      <details id="d-delete">
+        <summary>Delete all payments</summary>
+        <div class="body">
+          <p class="hint">Removes every payment from the list. You will be asked to confirm. Download the CSV first if you want a backup.</p>
+          <div class="row-actions"><button class="btn bad" id="del-all" type="button">Delete all payments</button></div>
+          <div class="msg" id="del-msg" role="status"></div>
+        </div>
+      </details>
     </section>
 
     <section class="filters" aria-label="Filter payments">
@@ -97,6 +105,6 @@
     <div id="list" class="list"></div>
   </div>
 
-  <script src="script.js?v=9"></script>
+  <script src="script.js?v=10"></script>
 </body>
 </html>
