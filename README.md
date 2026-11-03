@@ -1,0 +1,75 @@
+# Payment Tracker
+
+Monthly payment tracker. Import `name, amount, date` from a **CSV, Excel (.xlsx), PDF** or text file
+(or paste the lines), then mark each payment:
+
+- **Green** (Paid): paid on its date.
+- **Yellow** (Delayed): moved to the next day. The list shows "Pay on <date>".
+- **Red** (Cancelled).
+
+## Structure
+
+```
+payment-tracker/
+  backend/
+    main.py          FastAPI routes
+    database.py      SQLite setup and connection
+    schemas.py       Request and response models (Pydantic)
+    utils.py         CSV line, date and amount parsing
+    requirements.txt
+  frontend/
+    index.html
+    style.css
+    script.js        Calls the API with fetch()
+  sample.csv         Try this with Import
+```
+
+## Run
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
+
+Open http://127.0.0.1:8000. The backend serves the frontend too, so one command is enough.
+API docs (Swagger): http://127.0.0.1:8000/docs
+
+The database file `backend/payments.db` is created on first start.
+
+## Importing files
+
+Choosing a file does not save anything. The backend reads it and puts the rows it found in the
+import box, so you can check and fix them. Then click **Add to list** or **Replace whole list**.
+
+- **CSV / TXT**: `name, amount, date` per line.
+- **Excel (.xlsx)**: every sheet is read. Column order does not matter, the app finds the date,
+  amount and name in each row. Old `.xls` files: use Save As `.xlsx` first.
+- **PDF**: tables are read first, otherwise each text line is read. Always check the rows after
+  importing a PDF, because PDF layouts vary. Scanned PDFs (pictures of text) are not supported.
+
+## Running the frontend separately
+
+Open `frontend/` with VS Code Live Server and change the first line of `frontend/script.js` to:
+
+```js
+const API = "http://127.0.0.1:8000/api";
+```
+
+CORS is already enabled in the backend.
+
+## API
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
+| POST | `/api/payments` | Add one payment `{name, amount, date}` |
+| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed` or `cancelled` |
+| DELETE | `/api/payments/{id}` | Remove a payment |
+| POST | `/api/parse-file` | Upload .csv / .txt / .xlsx / .pdf (form field `file`), returns the rows found as text. Saves nothing |
+| POST | `/api/payments/import` | Import text `{text, replace}` |
+| GET | `/api/months` | Months that have payments |
+| GET | `/api/summary?month=2026-11` | Totals per status |
+| GET | `/api/export.csv` | Download everything as CSV |

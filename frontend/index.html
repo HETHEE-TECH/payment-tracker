@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payment Tracker</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css?v=7">
+</head>
+<body>
+  <div class="wrap">
+    <header class="brand">
+      <img class="logo" src="logo.jpg" alt="Tamil Nadu Advanced Technical Training Institute logo" width="72" height="72">
+      <div class="brand-text">
+        <p class="org">Tamil Nadu Advanced Technical Training Institute (TATTI)</p>
+        <h1>Payment Tracker</h1>
+        <p class="tagline">Import your payments and mark each one as it happens.</p>
+      </div>
+    </header>
+
+    <div id="error" class="banner error" hidden></div>
+
+    <section class="summary" aria-label="Summary">
+      <div class="stats" id="stats"></div>
+      <div class="bar" id="bar" aria-hidden="true"></div>
+    </section>
+
+    <section class="tools">
+      <details id="d-import">
+        <summary>Import payments</summary>
+        <div class="body">
+          <p class="hint">Choose a CSV, Excel (.xlsx) or PDF file, or paste lines: name, amount, date. Dates can be 2026-11-05 or 05-11-2026. Write amounts without commas (1500) or put them in quotes ("1,500"). A header line is skipped. After choosing a file, check the rows that appear in the box before you import.</p>
+          <textarea id="paste" placeholder="Rent, 12000, 2026-11-01&#10;Electricity bill, 1850, 2026-11-05&#10;Mobile recharge, 399, 2026-11-07" aria-label="Payments to import"></textarea>
+          <div class="row-actions">
+            <input type="file" id="file" accept=".csv,.txt,.xlsx,.pdf" aria-label="Choose a CSV, Excel or PDF file">
+          </div>
+          <div class="row-actions">
+            <button class="btn primary" id="imp-add" type="button">Add to list</button>
+            <button class="btn" id="imp-replace" type="button">Replace whole list</button>
+          </div>
+          <div class="msg" id="imp-msg" role="status"></div>
+        </div>
+      </details>
+      <details id="d-add">
+        <summary>Add one payment</summary>
+        <div class="body">
+          <form class="addgrid" id="add-form">
+            <div class="field"><label for="a-name">Name</label><input id="a-name" required placeholder="Course fee"></div>
+            <div class="field"><label for="a-amt">Amount (₹)</label><input id="a-amt" inputmode="decimal" required placeholder="2500"></div>
+            <div class="field"><label for="a-date">Date</label><input id="a-date" type="date" required></div>
+            <button class="btn primary" type="submit">Add</button>
+          </form>
+        </div>
+      </details>
+      <details id="d-export">
+        <summary>Download CSV</summary>
+        <div class="body">
+          <p class="hint">Downloads every payment with its status, for a backup or for a spreadsheet.</p>
+          <div class="row-actions"><a class="btn" href="/api/export.csv" download>Download payments.csv</a></div>
+        </div>
+      </details>
+    </section>
+
+    <section class="filters" aria-label="Filter payments">
+      <div class="field grow">
+        <label for="f-search">Search name</label>
+        <input id="f-search" type="search" placeholder="Apple, rent...">
+      </div>
+      <div class="field">
+        <label for="f-status">Status</label>
+        <select id="f-status">
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="paid">Paid</option>
+          <option value="delayed">Delayed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="f-year">Year</label>
+        <select id="f-year"><option value="">All years</option></select>
+      </div>
+      <div class="field">
+        <label for="f-month">Month</label>
+        <select id="f-month"><option value="">All months</option></select>
+      </div>
+      <div class="field">
+        <label for="f-day">Day</label>
+        <select id="f-day"><option value="">All days</option></select>
+      </div>
+      <div class="filter-foot">
+        <span id="f-count" class="hint" role="status"></span>
+        <button class="btn small" id="f-clear" type="button" hidden>Clear filters</button>
+      </div>
+    </section>
+
+    <div id="list" class="list"></div>
+  </div>
+
+  <script src="script.js?v=9"></script>
+</body>
+</html>
