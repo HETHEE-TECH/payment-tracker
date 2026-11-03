@@ -1,5 +1,6 @@
 import csv
 import io
+import os
 import re
 import sqlite3
 from contextlib import asynccontextmanager
@@ -8,12 +9,13 @@ from typing import List, Optional
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from database import get_db, init_db
 from schemas import ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
+    check_basic_auth,
     decode_text,
     next_day,
     parse_import_text,
@@ -29,16 +31,23 @@ MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()  # creates payments.db on first start
+    init_db()  # creates the payments table on first start
     yield
 
 
 app = FastAPI(title="Payment Tracker API", lifespan=lifespan)
 
+# Optional login. On Render, set APP_USERNAME and APP_PASSWORD, and the browser asks for them
+# before showing anything. Without them (your own computer) there is no login.
+APP_USERNAME = os.environ.get("APP_USERNAME", "")
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+LOGIN_ENABLED = bool(APP_USERNAME and APP_PASSWORD)
+
 # Lets the frontend call the API even when it is opened from another port (e.g. Live Server).
+# Switched off when the login is on, because then the page and the API share one address.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[] if LOGIN_ENABLED else ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -52,6 +61,18 @@ async def always_check_for_new_frontend(request, call_next):
     if not request.url.path.startswith("/api"):
         response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+@app.middleware("http")
+async def require_login(request, call_next):
+    if LOGIN_ENABLED and request.method != "OPTIONS":
+        if not check_basic_auth(request.headers.get("authorization"), APP_USERNAME, APP_PASSWORD):
+            return Response(
+                "Login required",
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="Payment Tracker"'},
+            )
+    return await call_next(request)
 
 
 def check_month(month: Optional[str]) -> None:

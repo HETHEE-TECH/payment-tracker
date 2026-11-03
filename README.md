@@ -50,6 +50,32 @@ import box, so you can check and fix them. Then click **Add to list** or **Repla
 - **PDF**: tables are read first, otherwise each text line is read. Always check the rows after
   importing a PDF, because PDF layouts vary. Scanned PDFs (pictures of text) are not supported.
 
+## Deploy on Render (with a free Postgres database)
+
+Render's free plan wipes local files on every restart, so a SQLite file would lose your payments.
+On Render the app uses Postgres instead. Locally nothing changes, it still uses SQLite.
+
+1. **Database:** create a free Postgres database (for example on neon.tech). Copy its connection
+   string, it starts with `postgresql://` and ends with `?sslmode=require`.
+2. **Render:** New > Web Service > connect the GitHub repo. Then set:
+   - Root Directory: `backend`
+   - Build Command: `pip install -r requirements.txt`
+   - Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - Instance Type: Free
+3. **Environment variables** (Render > Environment):
+
+   | Name | Value |
+   | --- | --- |
+   | `DATABASE_URL` | the Postgres connection string |
+   | `APP_USERNAME` | a username you choose |
+   | `APP_PASSWORD` | a long password you choose |
+   | `PYTHON_VERSION` | `3.12.8` |
+
+   With `APP_USERNAME` and `APP_PASSWORD` set, the browser asks for them before showing anything.
+   Without them, anyone who knows the link can see and change your payments.
+4. Deploy. The free plan sleeps after 15 minutes without visits, so the first load after a break
+   takes about a minute.
+
 ## Running the frontend separately
 
 Open `frontend/` with VS Code Live Server and change the first line of `frontend/script.js` to:

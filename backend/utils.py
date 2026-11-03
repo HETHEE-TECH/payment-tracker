@@ -32,6 +32,23 @@ def parse_amount(text: str) -> Optional[float]:
     return value if value > 0 else None
 
 
+def check_basic_auth(header: Optional[str], username: str, password: str) -> bool:
+    """True when the Authorization header is 'Basic <base64 user:password>' and matches."""
+    import base64
+    import hmac
+
+    if not header or not header.lower().startswith("basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header[6:].strip()).decode("utf-8")
+    except Exception:
+        return False
+    given_user, _, given_password = decoded.partition(":")
+    return hmac.compare_digest(given_user.encode(), username.encode()) and hmac.compare_digest(
+        given_password.encode(), password.encode()
+    )
+
+
 def next_day(day: str) -> str:
     return (date.fromisoformat(day) + timedelta(days=1)).isoformat()
 
