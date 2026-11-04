@@ -58,9 +58,11 @@ On Render the app uses Postgres instead. Locally nothing changes, it still uses 
 1. **Database:** create a free Postgres database (for example on neon.tech). Copy its connection
    string, it starts with `postgresql://` and ends with `?sslmode=require`.
 2. **Render:** New > Web Service > connect the GitHub repo. Then set:
-   - Root Directory: `backend`
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - Root Directory: leave it **empty**. The backend serves the `frontend` folder, and Render does
+     not give a service the files outside its Root Directory. With a Root Directory set, frontend
+     changes also do not trigger a new deploy.
+   - Build Command: `pip install -r backend/requirements.txt`
+   - Start Command: `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT`
    - Instance Type: Free
 3. **Environment variables** (Render > Environment):
 
@@ -99,3 +101,8 @@ CORS is already enabled in the backend.
 | GET | `/api/months` | Months that have payments |
 | GET | `/api/summary?month=2026-11` | Totals per status |
 | GET | `/api/export.csv` | Download everything as CSV |
+| GET | `/api/export-calendar.xlsx?month=2026-11` | Excel in the calendar layout (imported and manually added payments). No `month` = one sheet per month |
+| POST | `/api/files` | Keep a copy of an imported CSV / Excel / PDF (same file is stored once) |
+| GET | `/api/files` | List stored files |
+| GET / DELETE | `/api/files/{id}` | Download / delete a stored file |
+| POST / GET / DELETE | `/api/payments/{id}/image` | Upload / view / remove the image of a payment (JPG, PNG, WEBP, GIF, max 3 MB) |

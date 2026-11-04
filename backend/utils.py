@@ -54,6 +54,19 @@ def duplicate_key(name: str, amount: float, day: str):
     return (re.sub(r"\s+", " ", name or "").strip().lower(), round(float(amount), 2), day)
 
 
+def sniff_image(data: bytes) -> Optional[str]:
+    """Returns the image type from the file's first bytes, or None when it is not JPG/PNG/GIF/WEBP."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def next_day(day: str) -> str:
     return (date.fromisoformat(day) + timedelta(days=1)).isoformat()
 

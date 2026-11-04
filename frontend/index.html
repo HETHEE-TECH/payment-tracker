@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <div class="wrap">
@@ -29,7 +29,7 @@
       <details id="d-import">
         <summary>Import payments</summary>
         <div class="body">
-          <p class="hint">Choose a CSV, Excel (.xlsx) or PDF file, or paste lines: name, amount, date. Dates can be 2026-11-05 or 05-11-2026. Write amounts without commas (1500) or put them in quotes ("1,500"). A header line is skipped. After choosing a file, check the rows that appear in the box before you import.</p>
+          <p class="hint">Choose a CSV, Excel (.xlsx) or PDF file, or paste lines: name, amount, date. Dates can be 2026-11-05 or 05-11-2026. Write amounts without commas (1500) or put them in quotes ("1,500"). A header line is skipped. After choosing a file, check the rows that appear in the box before you import. The file itself is kept under Stored files.</p>
           <textarea id="paste" placeholder="Rent, 12000, 2026-11-01&#10;Electricity bill, 1850, 2026-11-05&#10;Mobile recharge, 399, 2026-11-07" aria-label="Payments to import"></textarea>
           <div class="row-actions">
             <input type="file" id="file" accept=".csv,.txt,.xlsx,.pdf" aria-label="Choose a CSV, Excel or PDF file">
@@ -52,11 +52,26 @@
           </form>
         </div>
       </details>
-      <details id="d-export">
-        <summary>Download CSV</summary>
+      <details id="d-files">
+        <summary>Stored files</summary>
         <div class="body">
-          <p class="hint">Downloads every payment with its status, for a backup or for a spreadsheet.</p>
+          <p class="hint">Every CSV, Excel and PDF file you import is kept here. The same file is stored once.</p>
+          <ul class="filelist" id="filelist"></ul>
+        </div>
+      </details>
+      <details id="d-export">
+        <summary>Download Excel / CSV</summary>
+        <div class="body">
+          <p class="hint">Excel keeps the same calendar layout you import. It has your imported payments and the ones you added by hand. Paid is green, delayed is yellow, cancelled is red. Leave the month empty to get every month, one sheet each.</p>
+          <div class="row-actions">
+            <div class="field">
+              <label for="x-month">Month (optional)</label>
+              <input id="x-month" type="month">
+            </div>
+            <button class="btn primary" id="x-excel" type="button">Download Excel</button>
+          </div>
           <div class="row-actions"><a class="btn" href="/api/export.csv" download>Download payments.csv</a></div>
+          <div class="msg" id="x-msg" role="status"></div>
         </div>
       </details>
       <details id="d-delete">
@@ -105,6 +120,6 @@
     <div id="list" class="list"></div>
   </div>
 
-  <script src="script.js?v=10"></script>
+  <script src="script.js?v=11"></script>
 </body>
 </html>

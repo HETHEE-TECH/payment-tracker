@@ -1,17 +1,21 @@
 import csv
+import hashlib
 import io
 import os
 import re
 import sqlite3
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from calendar_export import build_calendar_workbook
 from database import get_db, init_db
 from schemas import ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
@@ -23,9 +27,17 @@ from utils import (
     parse_pdf,
     parse_xlsx,
     payments_to_text,
+    sniff_image,
 )
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_IMAGE_BYTES = 3 * 1024 * 1024
+FILE_TYPES = {
+    ".csv": "text/csv",
+    ".txt": "text/plain",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pdf": "application/pdf",
+}
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
@@ -91,12 +103,15 @@ def check_month(month: Optional[str]) -> None:
 @app.get("/api/payments", response_model=List[PaymentOut])
 def list_payments(month: Optional[str] = None, db: sqlite3.Connection = Depends(get_db)):
     check_month(month)
-    sql = "SELECT * FROM payments"
+    sql = (
+        "SELECT p.*, (SELECT COUNT(*) FROM payment_images i WHERE i.payment_id = p.id) AS has_image "
+        "FROM payments p"
+    )
     params: tuple = ()
     if month:
-        sql += " WHERE date LIKE ?"
+        sql += " WHERE p.date LIKE ?"
         params = (month + "-%",)
-    sql += " ORDER BY date, name"
+    sql += " ORDER BY p.date, p.name"
     return [dict(row) for row in db.execute(sql, params).fetchall()]
 
 
@@ -133,6 +148,7 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
 
 @app.delete("/api/payments/{payment_id}", status_code=204)
 def delete_payment(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
+    db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
     cur = db.execute("DELETE FROM payments WHERE id = ?", (payment_id,))
     db.commit()
     if cur.rowcount == 0:
@@ -142,6 +158,7 @@ def delete_payment(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
 @app.delete("/api/payments")
 def delete_all_payments(db: sqlite3.Connection = Depends(get_db)):
     """Removes every payment. The frontend asks the user to confirm first."""
+    db.execute("DELETE FROM payment_images")
     cur = db.execute("DELETE FROM payments")
     db.commit()
     return {"deleted": cur.rowcount}
@@ -158,6 +175,7 @@ def import_payments(payload: ImportRequest, db: sqlite3.Connection = Depends(get
             detail="No valid lines found. Each line needs: name, amount, date",
         )
     if payload.replace:
+        db.execute("DELETE FROM payment_images")
         db.execute("DELETE FROM payments")
         seen = set()
     else:
@@ -206,6 +224,132 @@ async def parse_file(file: UploadFile = File(...)):
             detail="No payments found. Each row needs a name, an amount and a date.",
         )
     return {"text": payments_to_text(good), "count": len(good), "skipped": skipped}
+
+
+# ---------- stored import files ----------
+
+def attachment_headers(filename: str) -> dict:
+    return {"Content-Disposition": "attachment; filename*=UTF-8''" + quote(filename)}
+
+
+@app.post("/api/files")
+def store_file(file: UploadFile = File(...), db: sqlite3.Connection = Depends(get_db)):
+    """Keeps a copy of an imported CSV, Excel or PDF file. The same file is stored only once."""
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File is too large (limit is 5 MB)")
+    name = os.path.basename((file.filename or "upload").replace("\\", "/")) or "upload"
+    extension = os.path.splitext(name.lower())[1]
+    if extension not in FILE_TYPES:
+        raise HTTPException(status_code=422, detail="Only .csv, .txt, .xlsx and .pdf files are stored")
+    digest = hashlib.sha256(data).hexdigest()
+    existing = db.execute("SELECT id, filename FROM files WHERE sha256 = ?", (digest,)).fetchone()
+    if existing:
+        return {"id": existing["id"], "filename": existing["filename"], "already_stored": True}
+    cur = db.execute(
+        "INSERT INTO files (filename, content_type, size, sha256, uploaded_at, data) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            FILE_TYPES[extension],
+            len(data),
+            digest,
+            datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            data,
+        ),
+    )
+    db.commit()
+    return {"id": cur.lastrowid, "filename": name, "already_stored": False}
+
+
+@app.get("/api/files")
+def list_files(db: sqlite3.Connection = Depends(get_db)):
+    rows = db.execute(
+        "SELECT id, filename, content_type, size, uploaded_at FROM files ORDER BY id DESC"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/files/{file_id}")
+def download_file(file_id: int, db: sqlite3.Connection = Depends(get_db)):
+    row = db.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return Response(
+        content=bytes(row["data"]),
+        media_type=row["content_type"],
+        headers=attachment_headers(row["filename"]),
+    )
+
+
+@app.delete("/api/files/{file_id}", status_code=204)
+def delete_file(file_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cur = db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    db.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="File not found")
+
+
+# ---------- payment images ----------
+
+@app.post("/api/payments/{payment_id}/image")
+def upload_image(payment_id: int, file: UploadFile = File(...), db: sqlite3.Connection = Depends(get_db)):
+    if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    data = file.file.read(MAX_IMAGE_BYTES + 1)
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image is too large (limit is 3 MB)")
+    content_type = sniff_image(data)
+    if content_type is None:
+        raise HTTPException(status_code=422, detail="Upload a JPG, PNG, WEBP or GIF image")
+    db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
+    db.execute(
+        "INSERT INTO payment_images (payment_id, content_type, data) VALUES (?, ?, ?)",
+        (payment_id, content_type, data),
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/payments/{payment_id}/image")
+def get_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
+    row = db.execute(
+        "SELECT content_type, data FROM payment_images WHERE payment_id = ?", (payment_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No image for this payment")
+    return Response(
+        content=bytes(row["data"]),
+        media_type=row["content_type"],
+        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@app.delete("/api/payments/{payment_id}/image", status_code=204)
+def delete_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
+    db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
+    db.commit()
+
+
+# ---------- Excel export (calendar layout) ----------
+
+@app.get("/api/export-calendar.xlsx")
+def export_calendar(month: Optional[str] = None, db: sqlite3.Connection = Depends(get_db)):
+    """Imported and manually added payments in the same calendar layout you import. One sheet per month."""
+    check_month(month)
+    sql = "SELECT name, amount, date, status FROM payments"
+    params: tuple = ()
+    if month:
+        sql += " WHERE date LIKE ?"
+        params = (month + "-%",)
+    sql += " ORDER BY date, name"
+    rows = [dict(row) for row in db.execute(sql, params).fetchall()]
+    if not rows:
+        raise HTTPException(status_code=404, detail="No payments to export for this selection")
+    return Response(
+        content=build_calendar_workbook(rows),
+        media_type=FILE_TYPES[".xlsx"],
+        headers=attachment_headers(f"payments-{month or 'all-months'}.xlsx"),
+    )
 
 
 @app.get("/api/export.csv", response_class=PlainTextResponse)

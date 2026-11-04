@@ -16,7 +16,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 USING_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 DB_PATH = Path(os.environ.get("SQLITE_PATH") or Path(__file__).parent / "payments.db")
 
-SQLITE_SCHEMA = """
+SQLITE_SCHEMAS = ["""
 CREATE TABLE IF NOT EXISTS payments (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
     name     TEXT    NOT NULL,
@@ -25,9 +25,28 @@ CREATE TABLE IF NOT EXISTS payments (
     status   TEXT    NOT NULL DEFAULT 'pending',
     new_date TEXT                         -- set when status is 'delayed'
 )
-"""
+""", """
+-- Every file you import (CSV, Excel, PDF) is kept here, so it is not lost.
+CREATE TABLE IF NOT EXISTS files (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename    TEXT    NOT NULL,
+    content_type TEXT   NOT NULL,
+    size        INTEGER NOT NULL,
+    sha256      TEXT    NOT NULL,            -- same file twice is stored once
+    uploaded_at TEXT    NOT NULL,
+    data        BLOB    NOT NULL
+)
+""", """
+-- One image per payment (for example a payment screenshot).
+CREATE TABLE IF NOT EXISTS payment_images (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    payment_id   INTEGER NOT NULL,
+    content_type TEXT    NOT NULL,
+    data         BLOB    NOT NULL
+)
+"""]
 
-POSTGRES_SCHEMA = """
+POSTGRES_SCHEMAS = ["""
 CREATE TABLE IF NOT EXISTS payments (
     id       SERIAL PRIMARY KEY,
     name     TEXT             NOT NULL,
@@ -36,7 +55,24 @@ CREATE TABLE IF NOT EXISTS payments (
     status   TEXT             NOT NULL DEFAULT 'pending',
     new_date TEXT                          -- set when status is 'delayed'
 )
-"""
+""", """
+CREATE TABLE IF NOT EXISTS files (
+    id           SERIAL PRIMARY KEY,
+    filename     TEXT    NOT NULL,
+    content_type TEXT    NOT NULL,
+    size         INTEGER NOT NULL,
+    sha256       TEXT    NOT NULL,
+    uploaded_at  TEXT    NOT NULL,
+    data         BYTEA   NOT NULL
+)
+""", """
+CREATE TABLE IF NOT EXISTS payment_images (
+    id           SERIAL PRIMARY KEY,
+    payment_id   INTEGER NOT NULL,
+    content_type TEXT    NOT NULL,
+    data         BYTEA   NOT NULL
+)
+"""]
 
 
 class _Result:
@@ -98,12 +134,14 @@ def init_db() -> None:
     """Create the payments table if it does not exist yet."""
     if USING_POSTGRES:
         raw = _connect_postgres()
-        raw.execute(POSTGRES_SCHEMA)
+        for statement in POSTGRES_SCHEMAS:
+            raw.execute(statement)
         raw.commit()
         raw.close()
         return
     conn = sqlite3.connect(DB_PATH)
-    conn.execute(SQLITE_SCHEMA)
+    for statement in SQLITE_SCHEMAS:
+        conn.execute(statement)
     conn.commit()
     conn.close()
 

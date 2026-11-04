@@ -150,3 +150,14 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 @media (max-width: 560px) {
   .logo { width: 56px; height: 56px; }
 }
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); }
+.imgbtn { position: relative; cursor: pointer; }
+.imgbtn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.imgctl { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.thumb { display: block; line-height: 0; }
+.thumb img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+.filelist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.filelist li { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.filelist .fname { min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; }
+.filelist .empty-note { color: var(--muted); border-style: dashed; justify-content: flex-start; }

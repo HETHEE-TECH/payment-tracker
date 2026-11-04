@@ -19,6 +19,7 @@ class PaymentOut(BaseModel):
     date: str
     status: Status
     new_date: Optional[str] = None
+    has_image: bool = False
 
 
 class StatusUpdate(BaseModel):

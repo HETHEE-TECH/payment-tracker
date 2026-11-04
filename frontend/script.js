@@ -62,6 +62,8 @@ function renderSummary(s) {
     `<span class="bad" style="width:${(s.cancelled.amount / base) * 100}%"></span>`;
 }
 
+const imgVersion = {}; // bumps when an image changes, so the browser shows the new one
+
 function renderList(items) {
   const host = document.getElementById("list");
   if (!items.length) {
@@ -92,6 +94,13 @@ function renderList(items) {
         if (i.status === "delayed") acts += btn("paid", "Paid now", "ok");
       }
       acts += btn("remove", "Remove", "");
+      const imgUrl = `${API}/payments/${i.id}/image?v=${imgVersion[i.id] || 0}`;
+      const picker = (label) =>
+        `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" data-img="${i.id}"></label>`;
+      acts += `<span class="imgctl">` + (i.has_image
+        ? `<a class="thumb" href="${imgUrl}" target="_blank" rel="noopener" title="Open image"><img src="${imgUrl}" alt="Image for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
+          picker("Change image") + btn("img-remove", "Remove image", "")
+        : picker("Upload image")) + `</span>`;
       return `<div class="item ${STATUS_CLASS[i.status]}${isToday ? " todayrow" : ""}">` +
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
@@ -200,6 +209,7 @@ document.getElementById("list").addEventListener("click", async (e) => {
   const act = button.dataset.act;
   try {
     if (act === "remove") await api("/payments/" + id, { method: "DELETE" });
+    else if (act === "img-remove") await api(`/payments/${id}/image`, { method: "DELETE" });
     else await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) });
     refresh();
   } catch (err) {
@@ -207,17 +217,35 @@ document.getElementById("list").addEventListener("click", async (e) => {
   }
 });
 
+let pendingFile = null; // the CSV / Excel / PDF chosen in the import box, stored when you import
+
 async function doImport(replace) {
   const msg = document.getElementById("imp-msg");
   const text = document.getElementById("paste").value;
   try {
     const r = await api("/payments/import", { method: "POST", body: JSON.stringify({ text, replace }) });
+    let stored = "";
+    if (pendingFile) {
+      try {
+        const form = new FormData();
+        form.append("file", pendingFile);
+        const res = await fetch(API + "/files", { method: "POST", body: form });
+        const info = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(info.detail || res.statusText);
+        stored = info.already_stored ? " This file was already stored." : " File stored.";
+        pendingFile = null;
+        loadFiles();
+      } catch (err) {
+        stored = " The payments were imported, but the file could not be stored: " + err.message;
+      }
+    }
     const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
     msg.textContent = r.imported
       ? `Imported ${plural(r.imported, "payment")}.`
       : `Nothing new to add. ${plural(r.duplicates, "payment")} already in the list.`;
     if (r.imported && r.duplicates) msg.textContent += ` Skipped ${plural(r.duplicates, "duplicate")} (same name, amount and date).`;
     if (r.skipped) msg.textContent += ` Skipped ${plural(r.skipped, "line")} that could not be read.`;
+    msg.textContent += stored;
     document.getElementById("paste").value = "";
     refresh();
   } catch (err) {
@@ -258,6 +286,7 @@ document.getElementById("file").addEventListener("change", async (e) => {
       throw new Error(detail || res.statusText);
     }
     document.getElementById("paste").value = data.text;
+    pendingFile = file;
     msg.textContent = `Found ${data.count} ${data.count === 1 ? "payment" : "payments"}` +
       (data.skipped ? ` (${data.skipped} row${data.skipped === 1 ? "" : "s"} skipped)` : "") +
       ". Check them, fix anything wrong, then choose Add to list or Replace whole list.";
@@ -265,6 +294,99 @@ document.getElementById("file").addEventListener("change", async (e) => {
     msg.textContent = err.message;
   } finally {
     input.value = ""; // lets you pick the same file again
+  }
+});
+
+document.getElementById("paste").addEventListener("input", (e) => {
+  if (!e.target.value.trim()) pendingFile = null; // cleared by hand: nothing to store
+});
+
+// ---------- stored files ----------
+const fmtSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+
+async function loadFiles() {
+  const list = document.getElementById("filelist");
+  try {
+    const files = await api("/files");
+    list.innerHTML = files.length
+      ? files.map((f) =>
+          `<li><div class="fname"><a href="${API}/files/${f.id}">${esc(f.filename)}</a>` +
+          `<span class="sub">${fmtSize(f.size)} · ${esc(new Date(f.uploaded_at).toLocaleString("en-IN"))}</span></div>` +
+          `<button class="btn small" data-file-del="${f.id}" type="button">Delete file</button></li>`).join("")
+      : `<li class="empty-note">No files stored yet. Import a CSV, Excel or PDF file and it will appear here.</li>`;
+  } catch (err) {
+    list.innerHTML = `<li class="empty-note">Could not load files: ${esc(err.message)}</li>`;
+  }
+}
+document.getElementById("filelist").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-file-del]");
+  if (!b) return;
+  if (!window.confirm("Delete this stored file? The payments already imported from it stay in the list.")) return;
+  try { await api("/files/" + b.dataset.fileDel, { method: "DELETE" }); loadFiles(); } catch (err) { showError(err.message); }
+});
+
+// ---------- payment images ----------
+// Big photos are shrunk in the browser first (max 1400 px, JPEG), so uploads stay small and fast.
+async function shrinkImage(file) {
+  if (file.type === "image/gif" || (file.size <= 400 * 1024 && /^image\/(jpeg|png|webp)$/.test(file.type))) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1400 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+    return blob || file;
+  } catch (err) {
+    return file; // the server still checks the type and size
+  }
+}
+document.getElementById("list").addEventListener("change", async (e) => {
+  const input = e.target.closest("input[data-img]");
+  if (!input || !input.files || !input.files[0]) return;
+  const id = input.dataset.img;
+  try {
+    showError("");
+    const blob = await shrinkImage(input.files[0]);
+    const form = new FormData();
+    form.append("file", blob, "payment-image");
+    const res = await fetch(`${API}/payments/${id}/image`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join(", ") : data.detail || res.statusText);
+    imgVersion[id] = Date.now();
+    refresh();
+  } catch (err) {
+    showError(err.message);
+    input.value = "";
+  }
+});
+
+// ---------- Excel download (calendar layout) ----------
+document.getElementById("x-excel").addEventListener("click", async () => {
+  const msg = document.getElementById("x-msg");
+  const month = document.getElementById("x-month").value;
+  msg.textContent = "Preparing Excel...";
+  try {
+    const res = await fetch(`${API}/export-calendar.xlsx` + (month ? "?month=" + encodeURIComponent(month) : ""));
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || res.statusText);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `payments-${month || "all-months"}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    msg.textContent = "Excel downloaded.";
+  } catch (err) {
+    msg.textContent = err.message;
   }
 });
 
@@ -287,3 +409,4 @@ document.getElementById("add-form").addEventListener("submit", async (e) => {
 });
 
 refresh();
+loadFiles();
