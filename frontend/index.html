@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
   <div class="wrap">
@@ -19,6 +19,7 @@
     </header>
 
     <div id="error" class="banner error" hidden></div>
+    <div id="notice" class="banner notice" role="status" hidden></div>
 
     <section class="summary" aria-label="Summary">
       <div class="stats" id="stats"></div>
@@ -55,23 +56,8 @@
       <details id="d-files">
         <summary>Stored files</summary>
         <div class="body">
-          <p class="hint">Every CSV, Excel and PDF file you import is kept here. The same file is stored once.</p>
+          <p class="hint">Every CSV, Excel and PDF file you import is kept here. When you add a payment or change its status, the stored Excel file for that month is updated too: the payment goes under its day and gets the status colour (paid green, delayed yellow, cancelled red). A month with no stored Excel gets a new one.</p>
           <ul class="filelist" id="filelist"></ul>
-        </div>
-      </details>
-      <details id="d-export">
-        <summary>Download Excel / CSV</summary>
-        <div class="body">
-          <p class="hint">Excel keeps the same calendar layout you import. It has your imported payments and the ones you added by hand. Paid is green, delayed is yellow, cancelled is red. Leave the month empty to get every month, one sheet each.</p>
-          <div class="row-actions">
-            <div class="field">
-              <label for="x-month">Month (optional)</label>
-              <input id="x-month" type="month">
-            </div>
-            <button class="btn primary" id="x-excel" type="button">Download Excel</button>
-          </div>
-          <div class="row-actions"><a class="btn" href="/api/export.csv" download>Download payments.csv</a></div>
-          <div class="msg" id="x-msg" role="status"></div>
         </div>
       </details>
       <details id="d-delete">
@@ -120,6 +106,6 @@
     <div id="list" class="list"></div>
   </div>
 
-  <script src="script.js?v=11"></script>
+  <script src="script.js?v=12"></script>
 </body>
 </html>

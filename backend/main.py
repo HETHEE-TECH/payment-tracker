@@ -1,6 +1,4 @@
-import csv
 import hashlib
-import io
 import os
 import re
 import sqlite3
@@ -12,7 +10,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from calendar_export import build_calendar_workbook
@@ -29,6 +27,7 @@ from utils import (
     payments_to_text,
     sniff_image,
 )
+from xlsx_sync import apply_payment
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
@@ -93,6 +92,62 @@ def existing_keys(db) -> set:
     return {duplicate_key(r["name"], r["amount"], r["date"]) for r in rows}
 
 
+def sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
+    """
+    Writes the payment and its status colour into every stored Excel file that has a sheet for the
+    payment's month. When no stored Excel has that month, one is created ("Payments 2026-11.xlsx")
+    from the payments of that month. A problem here never stops the payment from being saved.
+    """
+    result = {"files_updated": [], "sync_error": None}
+    try:
+        month_key = payment["date"][:7]
+        files = db.execute(
+            "SELECT id, filename, data FROM files WHERE content_type = ? ORDER BY id", (FILE_TYPES[".xlsx"],)
+        ).fetchall()
+        has_month = False
+        for row in files:
+            try:
+                new_data, state = apply_payment(bytes(row["data"]), payment, add_if_missing)
+            except Exception as error:  # one unreadable file must not block the others
+                result["sync_error"] = f"{row['filename']}: {error}"
+                has_month = True
+                continue
+            if state != "no-month":
+                has_month = True
+            if new_data is not None:
+                db.execute(
+                    "UPDATE files SET data = ?, size = ? WHERE id = ?", (new_data, len(new_data), row["id"])
+                )
+                result["files_updated"].append(row["filename"])
+        if not has_month and add_if_missing:
+            month_rows = [
+                dict(r)
+                for r in db.execute(
+                    "SELECT name, amount, date, status FROM payments WHERE date LIKE ? ORDER BY date, name",
+                    (month_key + "-%",),
+                ).fetchall()
+            ]
+            if month_rows:
+                data = build_calendar_workbook(month_rows)
+                filename = f"Payments {month_key}.xlsx"
+                db.execute(
+                    "INSERT INTO files (filename, content_type, size, sha256, uploaded_at, data) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        filename,
+                        FILE_TYPES[".xlsx"],
+                        len(data),
+                        hashlib.sha256(data).hexdigest(),
+                        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        data,
+                    ),
+                )
+                result["files_updated"].append(filename + " (new)")
+        db.commit()
+    except Exception as error:
+        result["sync_error"] = str(error)
+    return result
+
+
 def check_month(month: Optional[str]) -> None:
     if month is not None and not MONTH_PATTERN.match(month):
         raise HTTPException(status_code=422, detail="month must look like 2026-11")
@@ -128,7 +183,8 @@ def create_payment(payload: PaymentCreate, db: sqlite3.Connection = Depends(get_
         (payload.name.strip(), payload.amount, payload.date.isoformat()),
     )
     db.commit()
-    return dict(db.execute("SELECT * FROM payments WHERE id = ?", (cur.lastrowid,)).fetchone())
+    created = dict(db.execute("SELECT * FROM payments WHERE id = ?", (cur.lastrowid,)).fetchone())
+    return {**created, **sync_stored_excels(db, created)}
 
 
 @app.patch("/api/payments/{payment_id}/status", response_model=PaymentOut)
@@ -143,7 +199,8 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
         (payload.status, new_date, payment_id),
     )
     db.commit()
-    return dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+    updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+    return {**updated, **sync_stored_excels(db, updated, add_if_missing=payload.status != "pending")}
 
 
 @app.delete("/api/payments/{payment_id}", status_code=204)
@@ -164,7 +221,7 @@ def delete_all_payments(db: sqlite3.Connection = Depends(get_db)):
     return {"deleted": cur.rowcount}
 
 
-# ---------- import / export ----------
+# ---------- import ----------
 
 @app.post("/api/payments/import")
 def import_payments(payload: ImportRequest, db: sqlite3.Connection = Depends(get_db)):
@@ -328,42 +385,6 @@ def get_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
 def delete_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
     db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
     db.commit()
-
-
-# ---------- Excel export (calendar layout) ----------
-
-@app.get("/api/export-calendar.xlsx")
-def export_calendar(month: Optional[str] = None, db: sqlite3.Connection = Depends(get_db)):
-    """Imported and manually added payments in the same calendar layout you import. One sheet per month."""
-    check_month(month)
-    sql = "SELECT name, amount, date, status FROM payments"
-    params: tuple = ()
-    if month:
-        sql += " WHERE date LIKE ?"
-        params = (month + "-%",)
-    sql += " ORDER BY date, name"
-    rows = [dict(row) for row in db.execute(sql, params).fetchall()]
-    if not rows:
-        raise HTTPException(status_code=404, detail="No payments to export for this selection")
-    return Response(
-        content=build_calendar_workbook(rows),
-        media_type=FILE_TYPES[".xlsx"],
-        headers=attachment_headers(f"payments-{month or 'all-months'}.xlsx"),
-    )
-
-
-@app.get("/api/export.csv", response_class=PlainTextResponse)
-def export_csv(db: sqlite3.Connection = Depends(get_db)):
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(["name", "amount", "date", "status", "new_date"])
-    for row in db.execute("SELECT * FROM payments ORDER BY date, name"):
-        writer.writerow([row["name"], row["amount"], row["date"], row["status"], row["new_date"] or ""])
-    return PlainTextResponse(
-        buffer.getvalue(),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="payments.csv"'},
-    )
 
 
 # ---------- month list and summary ----------

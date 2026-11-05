@@ -1,5 +1,5 @@
 from datetime import date as Date
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,8 @@ class PaymentOut(BaseModel):
     status: Status
     new_date: Optional[str] = None
     has_image: bool = False
+    files_updated: List[str] = []  # stored Excel files changed by this action
+    sync_error: Optional[str] = None
 
 
 class StatusUpdate(BaseModel):

@@ -1,5 +1,5 @@
 """
-Builds an Excel file in the same calendar layout you import:
+Builds a calendar-layout Excel file (used when a month has no stored Excel file yet):
 
     November 2026                       <- title (one sheet per month)
     Sunday      Monday      Tuesday     <- weekday names (two columns per day)
@@ -7,8 +7,8 @@ Builds an Excel file in the same calendar layout you import:
     Apple  2400 Apple 11820 ...         <- item + amount under each day
     =SUM(...)                           <- total of each day, one block per week
 
-Imported and manually added payments are both included. Paid is green, delayed is yellow and
-cancelled is red. The file can be imported back into the app.
+Every payment of the month is included. Paid is green, delayed is yellow and cancelled is red.
+The file can be imported back into the app.
 """
 import io
 from calendar import monthrange
@@ -22,7 +22,7 @@ from openpyxl.utils import get_column_letter
 MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December"]
 WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-STATUS_FILL = {"paid": "C6EFCE", "delayed": "FFEB9C", "cancelled": "FFC7CE"}
+STATUS_FILL = {"paid": "92D050", "delayed": "FFFF00", "cancelled": "FF7C80"}
 
 
 def _fill_sheet(ws, year: int, month: int, by_day) -> None:

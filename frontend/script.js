@@ -37,6 +37,25 @@ async function api(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+let noticeTimer = null;
+function showNotice(message) {
+  const box = document.getElementById("notice");
+  box.textContent = message || "";
+  box.hidden = !message;
+  clearTimeout(noticeTimer);
+  if (message) noticeTimer = setTimeout(() => { box.hidden = true; }, 6000);
+}
+
+// Tells the user which stored Excel files changed after adding a payment or changing its status.
+function reportSync(result) {
+  if (!result) return;
+  if (result.sync_error) showError("Saved, but the stored Excel could not be updated: " + result.sync_error);
+  if (result.files_updated && result.files_updated.length) {
+    showNotice("Stored Excel updated: " + result.files_updated.join(", "));
+    loadFiles();
+  }
+}
+
 function showError(message) {
   const box = document.getElementById("error");
   box.textContent = message || "";
@@ -210,7 +229,7 @@ document.getElementById("list").addEventListener("click", async (e) => {
   try {
     if (act === "remove") await api("/payments/" + id, { method: "DELETE" });
     else if (act === "img-remove") await api(`/payments/${id}/image`, { method: "DELETE" });
-    else await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) });
+    else reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) }));
     refresh();
   } catch (err) {
     showError(err.message);
@@ -365,31 +384,6 @@ document.getElementById("list").addEventListener("change", async (e) => {
   }
 });
 
-// ---------- Excel download (calendar layout) ----------
-document.getElementById("x-excel").addEventListener("click", async () => {
-  const msg = document.getElementById("x-msg");
-  const month = document.getElementById("x-month").value;
-  msg.textContent = "Preparing Excel...";
-  try {
-    const res = await fetch(`${API}/export-calendar.xlsx` + (month ? "?month=" + encodeURIComponent(month) : ""));
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.detail || res.statusText);
-    }
-    const url = URL.createObjectURL(await res.blob());
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `payments-${month || "all-months"}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-    msg.textContent = "Excel downloaded.";
-  } catch (err) {
-    msg.textContent = err.message;
-  }
-});
-
 document.getElementById("a-date").value = today;
 document.getElementById("add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -399,7 +393,7 @@ document.getElementById("add-form").addEventListener("submit", async (e) => {
     date: document.getElementById("a-date").value,
   };
   try {
-    await api("/payments", { method: "POST", body: JSON.stringify(body) });
+    reportSync(await api("/payments", { method: "POST", body: JSON.stringify(body) }));
     document.getElementById("a-name").value = "";
     document.getElementById("a-amt").value = "";
     refresh();

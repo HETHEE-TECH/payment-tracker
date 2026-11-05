@@ -78,6 +78,19 @@ On Render the app uses Postgres instead. Locally nothing changes, it still uses 
 4. Deploy. The free plan sleeps after 15 minutes without visits, so the first load after a break
    takes about a minute.
 
+## Stored Excel files stay up to date
+
+Every imported file is kept under **Stored files**. For calendar-style Excel files:
+
+- A payment you add by hand is written into the stored Excel of its month, under its day. A new day
+  gets its own column, a new week gets a new block at the bottom, and when a day has no free row a
+  row is inserted above the SUM row and the SUM formulas are extended.
+- Paid, Delayed and Cancelled colour the payment's two cells green, yellow and red. Undo removes the colour.
+- A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
+- Removing a payment or using Delete all payments does not change the stored files. Delete a stored
+  file with its own Delete file button.
+- CSV and PDF files are kept as they were imported. They cannot hold colours.
+
 ## Running the frontend separately
 
 Open `frontend/` with VS Code Live Server and change the first line of `frontend/script.js` to:
@@ -93,15 +106,13 @@ CORS is already enabled in the backend.
 | Method | Path | What it does |
 | --- | --- | --- |
 | GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
-| POST | `/api/payments` | Add one payment `{name, amount, date}` |
-| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed` or `cancelled` |
+| POST | `/api/payments` | Add one payment `{name, amount, date}`. Also writes it into the stored Excel file of its month |
+| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed` or `cancelled`. Also colours the payment in the stored Excel file |
 | DELETE | `/api/payments/{id}` | Remove a payment |
 | POST | `/api/parse-file` | Upload .csv / .txt / .xlsx / .pdf (form field `file`), returns the rows found as text. Saves nothing |
 | POST | `/api/payments/import` | Import text `{text, replace}` |
 | GET | `/api/months` | Months that have payments |
 | GET | `/api/summary?month=2026-11` | Totals per status |
-| GET | `/api/export.csv` | Download everything as CSV |
-| GET | `/api/export-calendar.xlsx?month=2026-11` | Excel in the calendar layout (imported and manually added payments). No `month` = one sheet per month |
 | POST | `/api/files` | Keep a copy of an imported CSV / Excel / PDF (same file is stored once) |
 | GET | `/api/files` | List stored files |
 | GET / DELETE | `/api/files/{id}` | Download / delete a stored file |
