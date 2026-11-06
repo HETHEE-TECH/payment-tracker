@@ -404,3 +404,14 @@ document.getElementById("add-form").addEventListener("submit", async (e) => {
 
 refresh();
 loadFiles();
+
+// Other people use the same link: pick up their changes without a manual reload.
+function refreshQuietly() {
+  if (document.hidden) return;
+  const active = document.activeElement;
+  if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return; // do not disturb typing
+  refresh();
+  loadFiles();
+}
+setInterval(refreshQuietly, 15000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshQuietly(); });

@@ -2,6 +2,7 @@ import hashlib
 import os
 import re
 import sqlite3
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +15,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from calendar_export import build_calendar_workbook
-from database import get_db, init_db
+from database import USING_POSTGRES, get_db, init_db
 from schemas import ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
@@ -92,7 +93,15 @@ def existing_keys(db) -> set:
     return {duplicate_key(r["name"], r["amount"], r["date"]) for r in rows}
 
 
+_SYNC_LOCK = threading.Lock()  # one writer at a time, so two people never overwrite each other's Excel edit
+
+
 def sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
+    with _SYNC_LOCK:
+        return _sync_stored_excels(db, payment, add_if_missing)
+
+
+def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
     """
     Writes the payment and its status colour into every stored Excel file that has a sheet for the
     payment's month. When no stored Excel has that month, one is created ("Payments 2026-11.xlsx")
@@ -102,7 +111,9 @@ def sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
     try:
         month_key = payment["date"][:7]
         files = db.execute(
-            "SELECT id, filename, data FROM files WHERE content_type = ? ORDER BY id", (FILE_TYPES[".xlsx"],)
+            "SELECT id, filename, data FROM files WHERE content_type = ? ORDER BY id"
+            + (" FOR UPDATE" if USING_POSTGRES else ""),
+            (FILE_TYPES[".xlsx"],),
         ).fetchall()
         has_month = False
         for row in files:
