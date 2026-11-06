@@ -116,6 +116,10 @@ function renderList(items) {
       const imgUrl = `${API}/payments/${i.id}/image?v=${imgVersion[i.id] || 0}`;
       const picker = (label) =>
         `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" data-img="${i.id}"></label>`;
+      const desc = i.description || "";
+      acts += `<span class="descctl"><input class="descinput${desc ? "" : " need"}" type="text" maxlength="500" ` +
+        `placeholder="Description (required)" value="${esc(desc)}" data-desc="${i.id}" aria-label="Description for ${esc(i.name)}" required>` +
+        `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button></span>`;
       acts += `<span class="imgctl">` + (i.has_image
         ? `<a class="thumb" href="${imgUrl}" target="_blank" rel="noopener" title="Open image"><img src="${imgUrl}" alt="Image for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
           picker("Change image") + btn("img-remove", "Remove image", "")
@@ -227,12 +231,40 @@ document.getElementById("list").addEventListener("click", async (e) => {
   const id = button.dataset.id;
   const act = button.dataset.act;
   try {
-    if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
+    if (act === "desc-save") {
+      const box = document.querySelector(`input[data-desc="${id}"]`);
+      const text = box ? box.value.trim() : "";
+      if (!text) {
+        showError("Description is required. Write a comment for this payment, then click Save.");
+        if (box) box.focus();
+        return;
+      }
+      reportSync(await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) }));
+    } else if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
     else if (act === "img-remove") await api(`/payments/${id}/image`, { method: "DELETE" });
     else reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) }));
     refresh();
   } catch (err) {
     showError(err.message);
+  }
+});
+
+document.getElementById("list").addEventListener("keydown", (e) => {
+  const box = e.target.closest("input[data-desc]");
+  if (!box || e.key !== "Enter") return;
+  e.preventDefault();
+  const save = document.querySelector(`button[data-act="desc-save"][data-id="${box.dataset.desc}"]`);
+  if (save) save.click();
+});
+// The image cannot be chosen until the description is filled in.
+document.getElementById("list").addEventListener("click", (e) => {
+  const picker = e.target.closest("input[data-img]");
+  if (!picker) return;
+  const box = document.querySelector(`input[data-desc="${picker.dataset.img}"]`);
+  if (!box || !box.value.trim()) {
+    e.preventDefault();
+    showError("Write the description first (required), then upload the image.");
+    if (box) box.focus();
   }
 });
 
@@ -370,6 +402,12 @@ document.getElementById("list").addEventListener("change", async (e) => {
   const id = input.dataset.img;
   try {
     showError("");
+    const box = document.querySelector(`input[data-desc="${id}"]`);
+    const text = box ? box.value.trim() : "";
+    if (!text) throw new Error("Description is required. Write it first, then upload the image.");
+    if (text !== (box.defaultValue || "").trim()) {
+      reportSync(await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) }));
+    }
     const blob = await shrinkImage(input.files[0]);
     const form = new FormData();
     form.append("file", blob, "payment-image");

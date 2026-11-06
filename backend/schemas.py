@@ -19,9 +19,14 @@ class PaymentOut(BaseModel):
     date: str
     status: Status
     new_date: Optional[str] = None
+    description: Optional[str] = None
     has_image: bool = False
     files_updated: List[str] = []  # stored Excel files changed by this action
     sync_error: Optional[str] = None
+
+
+class DescriptionUpdate(BaseModel):
+    description: str = Field(min_length=1, max_length=500)
 
 
 class StatusUpdate(BaseModel):

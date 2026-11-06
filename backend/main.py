@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from calendar_export import build_calendar_workbook
 from database import USING_POSTGRES, get_db, init_db
-from schemas import ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
+from schemas import DescriptionUpdate, ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
     decode_text,
@@ -161,7 +161,7 @@ def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
             month_rows = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT name, amount, date, status FROM payments WHERE date LIKE ? ORDER BY date, name",
+                    "SELECT name, amount, date, status, description FROM payments WHERE date LIKE ? ORDER BY date, name",
                     (month_key + "-%",),
                 ).fetchall()
             ]
@@ -239,6 +239,20 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
     db.commit()
     updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
     return {**updated, **sync_stored_excels(db, updated, add_if_missing=payload.status != "pending")}
+
+
+@app.put("/api/payments/{payment_id}/description", response_model=PaymentOut)
+def update_description(payment_id: int, payload: DescriptionUpdate, db: sqlite3.Connection = Depends(get_db)):
+    """Saves the comment for a payment. It is required, and it is written into the stored Excel files too."""
+    text = payload.description.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Description is required. Write a comment for this payment.")
+    if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    db.execute("UPDATE payments SET description = ? WHERE id = ?", (text, payment_id))
+    db.commit()
+    updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+    return {**updated, **sync_stored_excels(db, updated)}
 
 
 @app.delete("/api/payments/{payment_id}")
@@ -391,8 +405,11 @@ def delete_file(file_id: int, db: sqlite3.Connection = Depends(get_db)):
 
 @app.post("/api/payments/{payment_id}/image")
 def upload_image(payment_id: int, file: UploadFile = File(...), db: sqlite3.Connection = Depends(get_db)):
-    if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
+    row = db.execute("SELECT description FROM payments WHERE id = ?", (payment_id,)).fetchone()
+    if row is None:
         raise HTTPException(status_code=404, detail="Payment not found")
+    if not (row["description"] or "").strip():
+        raise HTTPException(status_code=422, detail="Write a description for this payment before uploading an image.")
     data = file.file.read(MAX_IMAGE_BYTES + 1)
     if len(data) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Image is too large (limit is 3 MB)")

@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS payments (
     amount   REAL    NOT NULL,
     date     TEXT    NOT NULL,           -- YYYY-MM-DD
     status   TEXT    NOT NULL DEFAULT 'pending',
-    new_date TEXT                         -- set when status is 'delayed'
+    new_date TEXT,                        -- set when status is 'delayed'
+    description TEXT                      -- comment written by the user (also goes into the Excel sheet)
 )
 """, """
 -- Every file you import (CSV, Excel, PDF) is kept here, so it is not lost.
@@ -53,7 +54,8 @@ CREATE TABLE IF NOT EXISTS payments (
     amount   DOUBLE PRECISION NOT NULL,
     date     TEXT             NOT NULL,   -- YYYY-MM-DD
     status   TEXT             NOT NULL DEFAULT 'pending',
-    new_date TEXT                          -- set when status is 'delayed'
+    new_date TEXT,                         -- set when status is 'delayed'
+    description TEXT                       -- comment written by the user (also goes into the Excel sheet)
 )
 """, """
 CREATE TABLE IF NOT EXISTS files (
@@ -136,12 +138,16 @@ def init_db() -> None:
         raw = _connect_postgres()
         for statement in POSTGRES_SCHEMAS:
             raw.execute(statement)
+        # Databases made before the description column existed get it added here.
+        raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS description TEXT")
         raw.commit()
         raw.close()
         return
     conn = sqlite3.connect(DB_PATH)
     for statement in SQLITE_SCHEMAS:
         conn.execute(statement)
+    if "description" not in {row[1] for row in conn.execute("PRAGMA table_info(payments)")}:
+        conn.execute("ALTER TABLE payments ADD COLUMN description TEXT")  # database from before this column
     conn.commit()
     conn.close()
 

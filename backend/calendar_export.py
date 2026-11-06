@@ -16,6 +16,7 @@ from collections import defaultdict
 from datetime import date
 
 import openpyxl
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -63,6 +64,10 @@ def _fill_sheet(ws, year: int, month: int, by_day) -> None:
             for index, payment in enumerate(by_day.get(day, [])):
                 name_cell = ws.cell(row + 2 + index, col, payment["name"])
                 amount_cell = ws.cell(row + 2 + index, col + 1, payment["amount"])
+                if payment.get("description"):
+                    note = Comment(payment["description"], "Payment Tracker")
+                    note.width, note.height = 260, 110
+                    name_cell.comment = note  # the description shows when you hover the name
                 color = STATUS_FILL.get(payment.get("status"))
                 if color:
                     fill = PatternFill("solid", fgColor=color)

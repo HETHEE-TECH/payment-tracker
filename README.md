@@ -87,6 +87,10 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   row is inserted above the SUM row and the SUM formulas are extended.
 - Paid, Delayed and Cancelled colour the payment's two cells green, yellow and red. Undo removes the colour.
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
+- Every payment has a Description box next to the image buttons. It is required: the image cannot be
+  uploaded until the description is written, and an empty description cannot be saved. The description is
+  written into the stored Excel files too: in a calendar sheet it becomes a note on the payment's name cell
+  (hover the red corner in Excel); in a table sheet it goes in a Description column (made if missing).
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
 - Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.
@@ -109,6 +113,7 @@ CORS is already enabled in the backend.
 | GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
 | POST | `/api/payments` | Add one payment `{name, amount, date}`. Also writes it into the stored Excel file of its month |
 | PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed` or `cancelled`. Also colours the payment in the stored Excel file |
+| PUT | `/api/payments/{id}/description` | Save the required description (also written into the stored Excel files) |
 | DELETE | `/api/payments/{id}` | Remove a payment. Also removes it from the stored Excel files |
 | POST | `/api/parse-file` | Upload .csv / .txt / .xlsx / .pdf (form field `file`), returns the rows found as text. Saves nothing |
 | POST | `/api/payments/import` | Import text `{text, replace}` |

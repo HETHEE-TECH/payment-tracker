@@ -16,6 +16,7 @@ from datetime import date, datetime
 from typing import List, Optional, Tuple
 
 import openpyxl
+from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -342,6 +343,81 @@ def _colour_one(ws, excel_row: int, excel_col: int, status: str) -> bool:
     return False
 
 
+# ---------- description (the comment the user writes for a payment) ----------
+
+DESCRIPTION_HEADERS = ("description", "comment", "comments", "remarks", "remark", "note", "notes")
+
+
+def _copy_note(note):
+    if note is None:
+        return None
+    copied = Comment(note.text, note.author or "Payment Tracker")
+    copied.width, copied.height = note.width, note.height
+    return copied
+
+
+def _set_note(cell, text: str) -> bool:
+    """Puts the description on a cell as a note (the red corner you hover in Excel)."""
+    current = (cell.comment.text if cell.comment else "") or ""
+    if current.strip() == text:
+        return False
+    note = Comment(text, "Payment Tracker")
+    note.width, note.height = 260, 110
+    cell.comment = note
+    return True
+
+
+def _describe_calendar(ws, year: int, month: int, day: int, payment: dict) -> bool:
+    text = (payment.get("description") or "").strip()
+    if not text:
+        return False
+    iso = date(year, month, day).isoformat()
+    key = duplicate_key(payment["name"], float(payment["amount"]), iso)
+    grid = [list(row) for row in ws.iter_rows(values_only=True)]
+    for block in _find_blocks(grid):
+        col = block["days"].get(day)
+        if col is None:
+            continue
+        for r in range(block["day_row"] + 1, block["end"]):
+            item = grid[r][col] if col < len(grid[r]) else None
+            value = _as_amount(grid[r][col + 1] if col + 1 < len(grid[r]) else None)
+            if isinstance(item, str) and value is not None and duplicate_key(item, value, iso) == key:
+                return _set_note(ws.cell(r + 1, col + 1), text)
+    return False
+
+
+def _describe_flat(ws, payment: dict) -> bool:
+    """A table sheet: the description goes in a Description column (made when the sheet has none)."""
+    text = (payment.get("description") or "").strip()
+    rows = _flat_rows(ws)
+    if not text or not rows:
+        return False
+    key = duplicate_key(payment["name"], float(payment["amount"]), payment["date"])
+    target = next((r for r, _nc, _ac, _dc, iso, name, amount in rows if duplicate_key(name, amount, iso) == key), None)
+    if target is None:
+        return False
+    header_row = rows[0][0] - 1
+    column = None
+    for row in ws.iter_rows(min_row=1, max_row=max(header_row, 1)):
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.strip().lower() in DESCRIPTION_HEADERS:
+                column = cell.column
+                break
+        if column:
+            break
+    if column is None:
+        column = ws.max_column + 1
+        if header_row >= 1:
+            header = ws.cell(header_row, column, "Description")
+            _copy_style(ws.cell(header_row, column - 1), header)
+        ws.column_dimensions[get_column_letter(column)].width = 32
+    cell = ws.cell(target, column)
+    if (cell.value or "") == text:
+        return False
+    cell.value = text
+    return True
+
+
 def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tuple[Optional[bytes], str]:
     """
     Updates one stored .xlsx for a payment {name, amount, date, status}.
@@ -356,10 +432,12 @@ def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tu
         if flat_sheet is None:
             return None, "no-month"
         changed = _flat_place(flat_sheet, payment, add_if_missing)
+        changed |= _describe_flat(flat_sheet, payment)
     else:
         changed = _place(
             sheet, year, month, day, payment["name"], float(payment["amount"]), payment["status"], add_if_missing
         )
+        changed |= _describe_calendar(sheet, year, month, day, payment)
     if not changed:
         return None, "unchanged"
     buffer = io.BytesIO()
@@ -414,10 +492,12 @@ def _remove_calendar(ws, year: int, month: int, day: int, name: str, amount: flo
                     source, target = ws.cell(q + 2, column), ws.cell(q + 1, column)
                     target.value = source.value
                     target.fill = copy(source.fill)
+                    target.comment = _copy_note(source.comment)
             for column in (col + 1, col + 2):  # the freed last row
                 cell = ws.cell(last + 1, column)
                 cell.value = None
                 cell.fill = PatternFill(fill_type=None)
+                cell.comment = None
             # When the whole last row of the week is now empty, take the row out too (it is the row
             # that adding this payment may have inserted), but always keep at least one item row.
             empty = all(
