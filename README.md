@@ -92,6 +92,10 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   or press Enter); erasing it clears the saved description and the Excel note, unless the payment has an image. The description is
   written into the stored Excel files too: in a calendar sheet it becomes a note on the payment's name cell
   (hover the red corner in Excel); in a table sheet it goes in a Description column (made if missing).
+- Import can carry descriptions too: a fourth item on a pasted line (`Rent, 12000, 2026-11-01, Monthly rent`),
+  a Description / Comment / Remarks column in a CSV or Excel table, or the note on a name cell in a calendar
+  sheet. It is optional on import. A payment that is already in the list gets the description only when it
+  has none yet; an existing description is never overwritten.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
 - Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.

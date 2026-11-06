@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <div class="wrap">
@@ -30,8 +30,8 @@
       <details id="d-import">
         <summary>Import payments</summary>
         <div class="body">
-          <p class="hint">Choose a CSV, Excel (.xlsx) or PDF file, or paste lines: name, amount, date. Dates can be 2026-11-05 or 05-11-2026. Write amounts without commas (1500) or put them in quotes ("1,500"). A header line is skipped. After choosing a file, check the rows that appear in the box before you import. The file itself is kept under Stored files.</p>
-          <textarea id="paste" placeholder="Rent, 12000, 2026-11-01&#10;Electricity bill, 1850, 2026-11-05&#10;Mobile recharge, 399, 2026-11-07" aria-label="Payments to import"></textarea>
+          <p class="hint">Choose a CSV, Excel (.xlsx) or PDF file, or paste lines: name, amount, date, description. The description is optional: write it as a fourth item, or as a Description column in the file (in a calendar sheet, the note on the name cell is read as the description). Dates can be 2026-11-05 or 05-11-2026. Write amounts without commas (1500) or put them in quotes ("1,500"). A header line is skipped. After choosing a file, check the rows that appear in the box before you import. The file itself is kept under Stored files.</p>
+          <textarea id="paste" placeholder="Rent, 12000, 2026-11-01, Monthly rent&#10;Electricity bill, 1850, 2026-11-05&#10;Mobile recharge, 399, 2026-11-07, Airtel prepaid" aria-label="Payments to import"></textarea>
           <div class="row-actions">
             <input type="file" id="file" accept=".csv,.txt,.xlsx,.pdf" aria-label="Choose a CSV, Excel or PDF file">
           </div>

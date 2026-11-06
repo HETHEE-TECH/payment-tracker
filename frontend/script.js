@@ -325,6 +325,7 @@ async function doImport(replace) {
       : `Nothing new to add. ${plural(r.duplicates, "payment")} already in the list.`;
     if (r.imported && r.duplicates) msg.textContent += ` Skipped ${plural(r.duplicates, "duplicate")} (same name, amount and date).`;
     if (r.skipped) msg.textContent += ` Skipped ${plural(r.skipped, "line")} that could not be read.`;
+    if (r.with_description) msg.textContent += ` ${plural(r.with_description, "description")} saved.`;
     msg.textContent += stored;
     document.getElementById("paste").value = "";
     refresh();

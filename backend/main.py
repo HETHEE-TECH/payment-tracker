@@ -93,6 +93,12 @@ def existing_keys(db) -> set:
     return {duplicate_key(r["name"], r["amount"], r["date"]) for r in rows}
 
 
+def existing_by_key(db) -> dict:
+    """key -> (payment id, description) for every payment already in the list."""
+    rows = db.execute("SELECT id, name, amount, date, description FROM payments").fetchall()
+    return {duplicate_key(r["name"], r["amount"], r["date"]): (r["id"], r["description"]) for r in rows}
+
+
 _SYNC_LOCK = threading.Lock()  # one writer at a time, so two people never overwrite each other's Excel edit
 
 
@@ -298,21 +304,33 @@ def import_payments(payload: ImportRequest, db: sqlite3.Connection = Depends(get
     if payload.replace:
         db.execute("DELETE FROM payment_images")
         db.execute("DELETE FROM payments")
-        seen = set()
+        known = {}
     else:
-        seen = existing_keys(db)
-    new_rows, duplicates = [], 0
-    for name, amount, day in good:
+        known = existing_by_key(db)
+    new_rows, duplicates, described = [], 0, 0
+    for name, amount, day, description in good:
         key = duplicate_key(name, amount, day)
-        if key in seen:
+        if key in known:
             duplicates += 1  # already in the list, or repeated inside this file
+            payment_id, old = known[key]
+            if description and payment_id is not None and not (old or "").strip():
+                # the payment is already there without a description: fill it in, never overwrite one
+                db.execute("UPDATE payments SET description = ? WHERE id = ?", (description, payment_id))
+                known[key] = (payment_id, description)
+                described += 1
             continue
-        seen.add(key)
-        new_rows.append((name, amount, day))
+        known[key] = (None, description or None)
+        new_rows.append((name, amount, day, description or None))
     if new_rows:
-        db.executemany("INSERT INTO payments (name, amount, date) VALUES (?, ?, ?)", new_rows)
+        db.executemany("INSERT INTO payments (name, amount, date, description) VALUES (?, ?, ?, ?)", new_rows)
     db.commit()
-    return {"imported": len(new_rows), "skipped": skipped, "duplicates": duplicates}
+    with_description = described + sum(1 for row in new_rows if row[3])
+    return {
+        "imported": len(new_rows),
+        "skipped": skipped,
+        "duplicates": duplicates,
+        "with_description": with_description,
+    }
 
 
 @app.post("/api/parse-file")
