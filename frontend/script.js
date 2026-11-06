@@ -46,10 +46,10 @@ function showNotice(message) {
   if (message) noticeTimer = setTimeout(() => { box.hidden = true; }, 6000);
 }
 
-// Tells the user which stored Excel files changed after adding a payment or changing its status.
+// Tells the user which stored Excel files changed after adding, removing or changing the status of a payment.
 function reportSync(result) {
   if (!result) return;
-  if (result.sync_error) showError("Saved, but the stored Excel could not be updated: " + result.sync_error);
+  if (result.sync_error) showError("Done, but the stored Excel could not be updated: " + result.sync_error);
   if (result.files_updated && result.files_updated.length) {
     showNotice("Stored Excel updated: " + result.files_updated.join(", "));
     loadFiles();
@@ -227,7 +227,7 @@ document.getElementById("list").addEventListener("click", async (e) => {
   const id = button.dataset.id;
   const act = button.dataset.act;
   try {
-    if (act === "remove") await api("/payments/" + id, { method: "DELETE" });
+    if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
     else if (act === "img-remove") await api(`/payments/${id}/image`, { method: "DELETE" });
     else reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) }));
     refresh();

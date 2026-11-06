@@ -28,7 +28,7 @@ from utils import (
     payments_to_text,
     sniff_image,
 )
-from xlsx_sync import apply_payment
+from xlsx_sync import apply_payment, remove_payment
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
@@ -99,6 +99,33 @@ _SYNC_LOCK = threading.Lock()  # one writer at a time, so two people never overw
 def sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
     with _SYNC_LOCK:
         return _sync_stored_excels(db, payment, add_if_missing)
+
+
+def remove_from_stored_excels(db, payment: dict) -> dict:
+    """Takes a deleted payment out of every stored Excel file, so the sheets match the list."""
+    result = {"files_updated": [], "sync_error": None}
+    with _SYNC_LOCK:
+        try:
+            files = db.execute(
+                "SELECT id, filename, data FROM files WHERE content_type = ? ORDER BY id"
+                + (" FOR UPDATE" if USING_POSTGRES else ""),
+                (FILE_TYPES[".xlsx"],),
+            ).fetchall()
+            for row in files:
+                try:
+                    new_data, state = remove_payment(bytes(row["data"]), payment)
+                except Exception as error:  # one unreadable file must not block the others
+                    result["sync_error"] = f"{row['filename']}: {error}"
+                    continue
+                if new_data is not None:
+                    db.execute(
+                        "UPDATE files SET data = ?, size = ? WHERE id = ?", (new_data, len(new_data), row["id"])
+                    )
+                    result["files_updated"].append(row["filename"])
+            db.commit()
+        except Exception as error:
+            result["sync_error"] = str(error)
+    return result
 
 
 def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
@@ -214,13 +241,16 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
     return {**updated, **sync_stored_excels(db, updated, add_if_missing=payload.status != "pending")}
 
 
-@app.delete("/api/payments/{payment_id}", status_code=204)
+@app.delete("/api/payments/{payment_id}")
 def delete_payment(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
-    db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
-    cur = db.execute("DELETE FROM payments WHERE id = ?", (payment_id,))
-    db.commit()
-    if cur.rowcount == 0:
+    row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+    if row is None:
         raise HTTPException(status_code=404, detail="Payment not found")
+    payment = dict(row)
+    db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
+    db.execute("DELETE FROM payments WHERE id = ?", (payment_id,))
+    db.commit()
+    return remove_from_stored_excels(db, payment)  # the stored Excel files lose it too
 
 
 @app.delete("/api/payments")

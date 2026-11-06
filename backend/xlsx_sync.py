@@ -365,3 +365,98 @@ def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tu
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue(), "updated"
+
+
+# ---------- removing a payment ----------
+
+def _delete_row(ws, delete_at: int) -> None:
+    """The reverse of _insert_row: removes an empty row and fixes merged cells and formulas below it."""
+    merged_below = []
+    for rng in list(ws.merged_cells.ranges):
+        if rng.min_row > delete_at:
+            merged_below.append((rng.min_col, rng.min_row, rng.max_col, rng.max_row))
+            ws.unmerge_cells(str(rng))
+    ws.delete_rows(delete_at)
+    for min_col, min_row, max_col, max_row in merged_below:
+        ws.merge_cells(start_row=min_row - 1, start_column=min_col, end_row=max_row - 1, end_column=max_col)
+    for row in ws.iter_rows():
+        for cell in row:
+            if _is_formula(cell.value):
+                # A SUM that ended on the deleted row now ends one row higher.
+                value = re.sub(
+                    r"(SUM\(\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?)(\d+)(\))",
+                    lambda m: m.group(1) + (str(delete_at - 1) if int(m.group(2)) == delete_at else m.group(2)) + m.group(3),
+                    cell.value,
+                )
+                cell.value = _REF.sub(
+                    lambda m: m.group(1) + str(int(m.group(2)) - (1 if int(m.group(2)) > delete_at else 0)),
+                    value,
+                )
+
+
+def _remove_calendar(ws, year: int, month: int, day: int, name: str, amount: float) -> bool:
+    """Clears the payment's two cells and moves the items under it up, so no gap is left."""
+    iso = date(year, month, day).isoformat()
+    grid = [list(row) for row in ws.iter_rows(values_only=True)]
+    key = duplicate_key(name, amount, iso)
+    for block in _find_blocks(grid):
+        col = block["days"].get(day)
+        if col is None:
+            continue
+        for r in range(block["day_row"] + 1, block["end"]):
+            item = grid[r][col] if col < len(grid[r]) else None
+            value = _as_amount(grid[r][col + 1] if col + 1 < len(grid[r]) else None)
+            if not (isinstance(item, str) and value is not None and duplicate_key(item, value, iso) == key):
+                continue
+            last = block["end"] - 1  # last item row of this block (0-based)
+            for q in range(r, last):  # pull every item below one row up (value and colour)
+                for column in (col + 1, col + 2):
+                    source, target = ws.cell(q + 2, column), ws.cell(q + 1, column)
+                    target.value = source.value
+                    target.fill = copy(source.fill)
+            for column in (col + 1, col + 2):  # the freed last row
+                cell = ws.cell(last + 1, column)
+                cell.value = None
+                cell.fill = PatternFill(fill_type=None)
+            # When the whole last row of the week is now empty, take the row out too (it is the row
+            # that adding this payment may have inserted), but always keep at least one item row.
+            empty = all(
+                c.value is None and not (c.fill and c.fill.fill_type == "solid")
+                for c in ws[last + 1]
+            )
+            if empty and last - 1 > block["day_row"]:
+                _delete_row(ws, last + 1)
+            return True
+    return False
+
+
+def _remove_flat(ws, payment: dict) -> bool:
+    key = duplicate_key(payment["name"], float(payment["amount"]), payment["date"])
+    for r, _nc, _ac, _dc, row_iso, name, amount in _flat_rows(ws):
+        if duplicate_key(name, amount, row_iso) == key:
+            ws.delete_rows(r)
+            return True
+    return False
+
+
+def remove_payment(data: bytes, payment: dict) -> Tuple[Optional[bytes], str]:
+    """
+    Takes one payment {name, amount, date} out of a stored .xlsx: the reverse of apply_payment.
+    Returns (new_file_bytes, "updated"), (None, "unchanged") when it is not in the file, or
+    (None, "no-month") when the workbook has no sheet for the payment's month.
+    """
+    year, month, day = (int(part) for part in payment["date"].split("-"))
+    workbook = openpyxl.load_workbook(io.BytesIO(data))
+    sheet = next((ws for ws in workbook.worksheets if _sheet_month(ws) == (year, month)), None)
+    if sheet is None:
+        flat_sheet = next((ws for ws in workbook.worksheets if _flat_rows(ws)), None)
+        if flat_sheet is None:
+            return None, "no-month"
+        changed = _remove_flat(flat_sheet, payment)
+    else:
+        changed = _remove_calendar(sheet, year, month, day, payment["name"], float(payment["amount"]))
+    if not changed:
+        return None, "unchanged"
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue(), "updated"
