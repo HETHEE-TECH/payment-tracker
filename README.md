@@ -88,7 +88,8 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - Paid, Delayed and Cancelled colour the payment's two cells green, yellow and red. Undo removes the colour.
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
 - Every payment has a Description box next to the image buttons. It is required: the image cannot be
-  uploaded until the description is written, and an empty description cannot be saved. The description is
+  uploaded until the description is written. Whatever is left in the box is saved (also when you leave the box
+  or press Enter); erasing it clears the saved description and the Excel note, unless the payment has an image. The description is
   written into the stored Excel files too: in a calendar sheet it becomes a note on the payment's name cell
   (hover the red corner in Excel); in a table sheet it goes in a Description column (made if missing).
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,

@@ -243,16 +243,25 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
 
 @app.put("/api/payments/{payment_id}/description", response_model=PaymentOut)
 def update_description(payment_id: int, payload: DescriptionUpdate, db: sqlite3.Connection = Depends(get_db)):
-    """Saves the comment for a payment. It is required, and it is written into the stored Excel files too."""
+    """Saves the comment for a payment and writes it into the stored Excel files too.
+    An empty text clears the description (and the Excel note), unless the payment has an image."""
     text = payload.description.strip()
-    if not text:
-        raise HTTPException(status_code=422, detail="Description is required. Write a comment for this payment.")
     if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Payment not found")
-    db.execute("UPDATE payments SET description = ? WHERE id = ?", (text, payment_id))
+    if not text:
+        images = db.execute("SELECT COUNT(*) AS n FROM payment_images WHERE payment_id = ?", (payment_id,)).fetchone()
+        if images["n"]:
+            raise HTTPException(
+                status_code=422,
+                detail="This payment has an image, so it needs a description. Remove the image first to clear it.",
+            )
+    db.execute("UPDATE payments SET description = ? WHERE id = ?", (text or None, payment_id))
     db.commit()
     updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
-    return {**updated, **sync_stored_excels(db, updated)}
+    if text:
+        return {**updated, **sync_stored_excels(db, updated)}
+    # Cleared: take the note out of the sheets, but never add the payment to a sheet just for that.
+    return {**updated, **sync_stored_excels(db, {**updated, "clear_description": True}, add_if_missing=False)}
 
 
 @app.delete("/api/payments/{payment_id}")

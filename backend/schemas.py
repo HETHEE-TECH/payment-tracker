@@ -26,7 +26,7 @@ class PaymentOut(BaseModel):
 
 
 class DescriptionUpdate(BaseModel):
-    description: str = Field(min_length=1, max_length=500)
+    description: str = Field(default="", max_length=500)  # empty clears it
 
 
 class StatusUpdate(BaseModel):

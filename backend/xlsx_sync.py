@@ -369,7 +369,8 @@ def _set_note(cell, text: str) -> bool:
 
 def _describe_calendar(ws, year: int, month: int, day: int, payment: dict) -> bool:
     text = (payment.get("description") or "").strip()
-    if not text:
+    clear = bool(payment.get("clear_description")) and not text  # only set when the user emptied the description
+    if not text and not clear:
         return False
     iso = date(year, month, day).isoformat()
     key = duplicate_key(payment["name"], float(payment["amount"]), iso)
@@ -382,15 +383,21 @@ def _describe_calendar(ws, year: int, month: int, day: int, payment: dict) -> bo
             item = grid[r][col] if col < len(grid[r]) else None
             value = _as_amount(grid[r][col + 1] if col + 1 < len(grid[r]) else None)
             if isinstance(item, str) and value is not None and duplicate_key(item, value, iso) == key:
-                return _set_note(ws.cell(r + 1, col + 1), text)
+                cell = ws.cell(r + 1, col + 1)
+                if clear:
+                    had_note = cell.comment is not None
+                    cell.comment = None
+                    return had_note
+                return _set_note(cell, text)
     return False
 
 
 def _describe_flat(ws, payment: dict) -> bool:
     """A table sheet: the description goes in a Description column (made when the sheet has none)."""
     text = (payment.get("description") or "").strip()
+    clear = bool(payment.get("clear_description")) and not text
     rows = _flat_rows(ws)
-    if not text or not rows:
+    if (not text and not clear) or not rows:
         return False
     key = duplicate_key(payment["name"], float(payment["amount"]), payment["date"])
     target = next((r for r, _nc, _ac, _dc, iso, name, amount in rows if duplicate_key(name, amount, iso) == key), None)
@@ -405,6 +412,8 @@ def _describe_flat(ws, payment: dict) -> bool:
                 break
         if column:
             break
+    if column is None and clear:
+        return False  # no description column, nothing to clear
     if column is None:
         column = ws.max_column + 1
         if header_row >= 1:
@@ -414,7 +423,7 @@ def _describe_flat(ws, payment: dict) -> bool:
     cell = ws.cell(target, column)
     if (cell.value or "") == text:
         return False
-    cell.value = text
+    cell.value = text or None
     return True
 
 

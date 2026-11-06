@@ -118,7 +118,7 @@ function renderList(items) {
         `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" data-img="${i.id}"></label>`;
       const desc = i.description || "";
       acts += `<span class="descctl"><input class="descinput${desc ? "" : " need"}" type="text" maxlength="500" ` +
-        `placeholder="Description (required)" value="${esc(desc)}" data-desc="${i.id}" aria-label="Description for ${esc(i.name)}" required>` +
+        `placeholder="Description (required)" autocomplete="off" value="${esc(desc)}" data-desc="${i.id}" aria-label="Description for ${esc(i.name)}" required>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button></span>`;
       acts += `<span class="imgctl">` + (i.has_image
         ? `<a class="thumb" href="${imgUrl}" target="_blank" rel="noopener" title="Open image"><img src="${imgUrl}" alt="Image for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
@@ -232,14 +232,8 @@ document.getElementById("list").addEventListener("click", async (e) => {
   const act = button.dataset.act;
   try {
     if (act === "desc-save") {
-      const box = document.querySelector(`input[data-desc="${id}"]`);
-      const text = box ? box.value.trim() : "";
-      if (!text) {
-        showError("Description is required. Write a comment for this payment, then click Save.");
-        if (box) box.focus();
-        return;
-      }
-      reportSync(await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) }));
+      await saveDescription(id, document.querySelector(`input[data-desc="${id}"]`), true);
+      return; // the list is not redrawn, so what you typed in the other rows stays
     } else if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
     else if (act === "img-remove") await api(`/payments/${id}/image`, { method: "DELETE" });
     else reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) }));
@@ -249,12 +243,47 @@ document.getElementById("list").addEventListener("click", async (e) => {
   }
 });
 
+// Saves what is in one description box. An emptied box clears the saved description (and the Excel note).
+// The list is not redrawn, so an old description can never come back into another row.
+async function saveDescription(id, box, explicit) {
+  if (!box || box.dataset.busy) return;
+  const text = box.value.trim();
+  const saved = (box.defaultValue || "").trim();
+  if (text === saved) {
+    if (explicit && !text) {
+      showError("Description is required. Write a comment for this payment, then click Save.");
+      box.focus();
+    } else if (explicit) {
+      showNotice("Description is already saved.");
+    }
+    return;
+  }
+  box.dataset.busy = "1";
+  try {
+    showError("");
+    const result = await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) });
+    box.defaultValue = text; // the saved value, used to see later whether the box was changed
+    box.value = text;
+    box.classList.toggle("need", !text);
+    const item = allItems.find((x) => String(x.id) === String(id));
+    if (item) item.description = text || null;
+    reportSync(result);
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    delete box.dataset.busy;
+  }
+}
 document.getElementById("list").addEventListener("keydown", (e) => {
   const box = e.target.closest("input[data-desc]");
   if (!box || e.key !== "Enter") return;
   e.preventDefault();
-  const save = document.querySelector(`button[data-act="desc-save"][data-id="${box.dataset.desc}"]`);
-  if (save) save.click();
+  saveDescription(box.dataset.desc, box, true);
+});
+// Leaving the box (or pressing Enter) saves whatever is in it, including an erased text.
+document.getElementById("list").addEventListener("change", (e) => {
+  const box = e.target.closest("input[data-desc]");
+  if (box) saveDescription(box.dataset.desc, box, false);
 });
 // The image cannot be chosen until the description is filled in.
 document.getElementById("list").addEventListener("click", (e) => {
