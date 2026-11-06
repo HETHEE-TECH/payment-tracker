@@ -12,14 +12,14 @@ inserted above the SUM row and the SUM formulas are extended.
 import io
 import re
 from copy import copy
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional, Tuple
 
 import openpyxl
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
-from utils import WEEKDAYS, _day_number, _is_formula, _month_year, duplicate_key, parse_amount
+from utils import WEEKDAYS, _day_number, _is_formula, _month_year, duplicate_key, parse_amount, parse_date
 
 STATUS_COLORS = {"paid": "FF92D050", "delayed": "FFFFFF00", "cancelled": "FFFF7C80"}
 WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
@@ -265,6 +265,83 @@ def _place(ws, year: int, month: int, day: int, name: str, amount: float, status
     return True
 
 
+# ---------- flat tables (one payment per row: name, amount, date) ----------
+
+def _cell_date(value) -> Optional[str]:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        return parse_date(value)
+    return None
+
+
+def _flat_rows(ws):
+    """Rows that look like a payment: (excel_row, name_col, amount_col, date_col, iso, name, amount) with 1-based columns."""
+    found = []
+    for r, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        date_col = iso = None
+        for c, v in enumerate(row):
+            iso = _cell_date(v)
+            if iso:
+                date_col = c
+                break
+        if date_col is None:
+            continue
+        amount_col = amount = name_col = name = None
+        for c, v in enumerate(row):
+            if c == date_col or v is None or isinstance(v, (bool, datetime, date)):
+                continue
+            number = _as_amount(v)
+            if number is not None and amount_col is None:
+                amount_col, amount = c, number
+            elif isinstance(v, str) and v.strip() and name_col is None and number is None:
+                name_col, name = c, v.strip()
+        if amount_col is not None and name_col is not None:
+            found.append((r, name_col + 1, amount_col + 1, date_col + 1, iso, name, amount))
+    return found
+
+
+def _flat_place(ws, payment: dict, add_if_missing: bool) -> bool:
+    rows = _flat_rows(ws)
+    iso, status = payment["date"], payment["status"]
+    key = duplicate_key(payment["name"], float(payment["amount"]), iso)
+    for r, nc, ac, dc, row_iso, name, amount in rows:
+        if duplicate_key(name, amount, row_iso) == key:
+            changed = False
+            for col in (nc, ac, dc):
+                changed |= _colour_one(ws, r, col, status)
+            return changed
+    if not add_if_missing:
+        return False
+    last, nc, ac, dc = rows[-1][0], rows[-1][1], rows[-1][2], rows[-1][3]
+    target = last + 1
+    for col in (nc, ac, dc):
+        _copy_style(ws.cell(last, col), ws.cell(target, col))
+    ws.cell(target, nc, payment["name"])
+    ws.cell(target, ac, _clean_number(float(payment["amount"])))
+    sample = ws.cell(last, dc).value
+    day = date.fromisoformat(iso)
+    ws.cell(target, dc, datetime(day.year, day.month, day.day) if isinstance(sample, (datetime, date)) else iso)
+    for col in (nc, ac, dc):
+        _colour_one(ws, target, col, status)
+    return True
+
+
+def _colour_one(ws, excel_row: int, excel_col: int, status: str) -> bool:
+    wanted = STATUS_COLORS.get(status)
+    cell = ws.cell(excel_row, excel_col)
+    current = cell.fill.fgColor.rgb if cell.fill and cell.fill.fill_type == "solid" else None
+    if wanted and current != wanted:
+        cell.fill = PatternFill("solid", fgColor=wanted)
+        return True
+    if not wanted and current is not None:
+        cell.fill = PatternFill(fill_type=None)
+        return True
+    return False
+
+
 def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tuple[Optional[bytes], str]:
     """
     Updates one stored .xlsx for a payment {name, amount, date, status}.
@@ -275,10 +352,14 @@ def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tu
     workbook = openpyxl.load_workbook(io.BytesIO(data))
     sheet = next((ws for ws in workbook.worksheets if _sheet_month(ws) == (year, month)), None)
     if sheet is None:
-        return None, "no-month"
-    changed = _place(
-        sheet, year, month, day, payment["name"], float(payment["amount"]), payment["status"], add_if_missing
-    )
+        flat_sheet = next((ws for ws in workbook.worksheets if _flat_rows(ws)), None)
+        if flat_sheet is None:
+            return None, "no-month"
+        changed = _flat_place(flat_sheet, payment, add_if_missing)
+    else:
+        changed = _place(
+            sheet, year, month, day, payment["name"], float(payment["amount"]), payment["status"], add_if_missing
+        )
     if not changed:
         return None, "unchanged"
     buffer = io.BytesIO()
