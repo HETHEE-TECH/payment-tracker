@@ -89,12 +89,15 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
 - Every payment has a Description box next to the image buttons. It is required: the image cannot be
   uploaded until the description is written. Whatever is left in the box is saved (also when you leave the box
-  or press Enter); erasing it clears the saved description and the Excel note, unless the payment has an image. The description is
-  written into the stored Excel files too: in a calendar sheet it becomes a note on the payment's name cell
-  (hover the red corner in Excel); in a table sheet it goes in a Description column (made if missing).
+  or press Enter); erasing it clears the saved description and the Excel cell, unless the payment has an image. The description is
+  written into the stored Excel files too: in a calendar sheet every day has three
+  columns (name, amount, description) and the description goes in the third one, next to the amount; in a
+  table sheet it goes in a Description column (made if missing). A calendar sheet that still has two columns
+  per day gets the third column added to every day the first time the app updates it (styles, merged
+  headers and SUM formulas move along).
 - Import can carry descriptions too: a fourth item on a pasted line (`Rent, 12000, 2026-11-01, Monthly rent`),
-  a Description / Comment / Remarks column in a CSV or Excel table, or the note on a name cell in a calendar
-  sheet. It is optional on import. A payment that is already in the list gets the description only when it
+  a Description / Comment / Remarks column in a CSV or Excel table, or the third column of each day in a
+  calendar sheet (an old note on the name cell is read too). It is optional on import. A payment that is already in the list gets the description only when it
   has none yet; an existing description is never overwritten.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.

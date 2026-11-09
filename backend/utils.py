@@ -227,15 +227,29 @@ def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def calendar_stride(blocks_days, year: int, month: int) -> Optional[int]:
+    """Columns per day in a calendar sheet: 2 (name, amount) or 3 (name, amount, description).
+    blocks_days: one {day: column} dict per week block. None when no block has two days to compare."""
+    first = (date(year, month, 1).weekday() + 1) % 7  # Sunday = 0
+    for days in blocks_days:
+        items = sorted(days.items())
+        for (d1, c1), (d2, c2) in zip(items, items[1:]):
+            diff = ((first + d2 - 1) % 7) - ((first + d1 - 1) % 7)
+            if diff > 0 and (c2 - c1) % diff == 0 and (c2 - c1) // diff in (2, 3):
+                return (c2 - c1) // diff
+    return None
+
+
 def calendar_payments(rows, notes=None) -> Optional[Tuple[List[Payment], int]]:
     """
     Reads a calendar-style sheet: a title like 'November 2026', weekday headers, a row of day
-    numbers, then under each day an item cell and an amount cell (two columns per day) until the
-    next weekday/day row or a SUM row. Several week blocks stacked down the sheet are supported.
+    numbers, then under each day an item cell, an amount cell and (newer sheets) a description cell
+    (two or three columns per day) until the next weekday/day row or a SUM row. Several week blocks stacked down the sheet are supported.
     Returns None when the sheet does not look like this (so the flat reader can try instead).
     rows must be read WITHOUT cached formula values, so SUM rows are recognised as formulas.
-    notes: optional grid (same rows and columns) with the note text of each cell; a note on an item's
-    name cell becomes the payment's description.
+    The description is the third column of the day. In older sheets with two columns per day, a note
+    on an item's name cell is used instead: notes is an optional grid (same rows and columns) with the
+    note text of each cell.
     """
     grid = [list(r) for r in rows]
     year_month = None
@@ -265,6 +279,8 @@ def calendar_payments(rows, notes=None) -> Optional[Tuple[List[Payment], int]]:
             "Add a title cell such as 'November 2026' at the top."
         )
     year, month = year_month
+    stride = calendar_stride([{d: c for c, d in days} for _, days in day_rows], year, month)
+    has_description_column = stride == 3
 
     def is_boundary(row) -> bool:
         cells = [v for v in row if v is not None and str(v).strip() != ""]
@@ -281,8 +297,10 @@ def calendar_payments(rows, notes=None) -> Optional[Tuple[List[Payment], int]]:
     skipped = 0
     for r, days in day_rows:
         end = len(grid)
+        hidden = {c + 2 for c, _ in days} if has_description_column else set()  # free text, not a total row
         for q in range(r + 1, len(grid)):
-            if q in day_row_numbers or is_boundary(grid[q]):
+            shown = [None if i in hidden else v for i, v in enumerate(grid[q])] if hidden else grid[q]
+            if q in day_row_numbers or is_boundary(shown):
                 end = q
                 break
         for col, day in days:
@@ -300,8 +318,10 @@ def calendar_payments(rows, notes=None) -> Optional[Tuple[List[Payment], int]]:
                 if not name_text and (amount is None or amount == 0 or amount == ""):
                     continue  # empty pair, or a 0 with no item
                 if name_text and amount_value and amount_value > 0:
-                    note = notes[q][col] if notes and q < len(notes) and col < len(notes[q]) else ""
-                    good.append((name_text, float(amount_value), day_iso, clip_description(note)))
+                    text = _cell_text(row[col + 2]) if has_description_column and col + 2 < len(row) else ""
+                    if not text and notes and q < len(notes) and col < len(notes[q]):
+                        text = notes[q][col]  # an older sheet: the note on the name cell
+                    good.append((name_text, float(amount_value), day_iso, clip_description(text)))
                 elif name_text and (amount is None or amount == 0 or amount == ""):
                     # item with no amount: nothing to pay, skip quietly only when it is 0
                     if amount == 0:

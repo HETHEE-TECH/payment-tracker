@@ -2,9 +2,9 @@
 Builds a calendar-layout Excel file (used when a month has no stored Excel file yet):
 
     November 2026                       <- title (one sheet per month)
-    Sunday      Monday      Tuesday     <- weekday names (two columns per day)
+    Sunday      Monday      Tuesday     <- weekday names (three columns per day)
     1           2           3           <- day numbers
-    Apple  2400 Apple 11820 ...         <- item + amount under each day
+    Apple 2400 note  Apple 11820 ...    <- item, amount and description under each day
     =SUM(...)                           <- total of each day, one block per week
 
 Every payment of the month is included. Paid is green, delayed is yellow and cancelled is red.
@@ -16,7 +16,6 @@ from collections import defaultdict
 from datetime import date
 
 import openpyxl
-from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -29,7 +28,7 @@ STATUS_FILL = {"paid": "92D050", "delayed": "FFFF00", "cancelled": "FF7C80"}
 def _fill_sheet(ws, year: int, month: int, by_day) -> None:
     title = ws.cell(1, 1, f"{MONTH_NAMES[month - 1]} {year}")
     title.font = Font(bold=True, size=14)
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=14)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=21)
 
     first_weekday = (date(year, month, 1).weekday() + 1) % 7  # Sunday = 0
     days_in_month = monthrange(year, month)[1]
@@ -52,12 +51,13 @@ def _fill_sheet(ws, year: int, month: int, by_day) -> None:
         most = max(1, max(len(by_day.get(day, [])) for day, _ in week))
         sum_row = row + 2 + most
         for day, weekday in week:
-            col = 1 + 2 * weekday
+            col = 1 + 3 * weekday
             head = ws.cell(row, col, WEEKDAY_NAMES[weekday])
             head.font, head.fill = bold, header_fill
             head.alignment = Alignment(horizontal="center")
             ws.cell(row, col + 1).fill = header_fill
-            ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col + 1)
+            ws.cell(row, col + 2).fill = header_fill
+            ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col + 2)
             number = ws.cell(row + 1, col, day)
             number.font = bold
             number.alignment = Alignment(horizontal="left")
@@ -65,9 +65,10 @@ def _fill_sheet(ws, year: int, month: int, by_day) -> None:
                 name_cell = ws.cell(row + 2 + index, col, payment["name"])
                 amount_cell = ws.cell(row + 2 + index, col + 1, payment["amount"])
                 if payment.get("description"):
-                    note = Comment(payment["description"], "Payment Tracker")
-                    note.width, note.height = 260, 110
-                    name_cell.comment = note  # the description shows when you hover the name
+                    note = ws.cell(row + 2 + index, col + 2, payment["description"])  # third column of the day
+                    note.alignment = Alignment(wrap_text=True, vertical="top")
+                    if str(payment["description"]).startswith("="):
+                        note.data_type = "s"  # text, never a formula
                 color = STATUS_FILL.get(payment.get("status"))
                 if color:
                     fill = PatternFill("solid", fgColor=color)
@@ -79,8 +80,9 @@ def _fill_sheet(ws, year: int, month: int, by_day) -> None:
         row = sum_row + 2  # one empty row between weeks
 
     for weekday in range(7):
-        ws.column_dimensions[get_column_letter(1 + 2 * weekday)].width = 18
-        ws.column_dimensions[get_column_letter(2 + 2 * weekday)].width = 12
+        ws.column_dimensions[get_column_letter(1 + 3 * weekday)].width = 18
+        ws.column_dimensions[get_column_letter(2 + 3 * weekday)].width = 12
+        ws.column_dimensions[get_column_letter(3 + 3 * weekday)].width = 28
 
 
 def build_calendar_workbook(payments) -> bytes:

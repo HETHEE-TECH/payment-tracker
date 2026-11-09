@@ -5,9 +5,11 @@ When you add a payment by hand, or change its status, the payment is written int
 Excel file for its month (under the right day), and its two cells get the status colour:
 paid = green, delayed = yellow, cancelled = red. Pending has no colour.
 
-The file's own layout is kept: only the needed cells are written. A new day gets its own
-column pair, a new week gets a new block at the bottom, and when a day has no free row a row is
-inserted above the SUM row and the SUM formulas are extended.
+The file's own layout is kept: only the needed cells are written. Every day has three columns:
+name, amount and description. A sheet that still has two columns per day gets the third column
+added to every day the first time the app updates it. A new day gets its own three columns, a new
+week gets a new block at the bottom, and when a day has no free row a row is inserted above the
+SUM row and the SUM formulas are extended.
 """
 import io
 import re
@@ -17,10 +19,12 @@ from typing import List, Optional, Tuple
 
 import openpyxl
 from openpyxl.comments import Comment
-from openpyxl.styles import PatternFill
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment, PatternFill
+from openpyxl.utils import column_index_from_string, get_column_letter
 
-from utils import WEEKDAYS, _day_number, _is_formula, _month_year, duplicate_key, parse_amount, parse_date
+from utils import (
+    WEEKDAYS, _day_number, _is_formula, _month_year, calendar_stride, duplicate_key, parse_amount, parse_date,
+)
 
 STATUS_COLORS = {"paid": "FF92D050", "delayed": "FFFFFF00", "cancelled": "FFFF7C80"}
 WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
@@ -51,8 +55,10 @@ def _sheet_month(ws) -> Optional[Tuple[int, int]]:
     return None
 
 
-def _find_blocks(grid):
-    """A block is one week: a row of day numbers and the item rows under it, up to the SUM row."""
+def _find_blocks(grid, desc_offset: Optional[int] = 2):
+    """A block is one week: a row of day numbers and the item rows under it, up to the SUM row.
+    desc_offset: the description column sits this many columns right of the day column (its free text
+    must not be mistaken for a total row); None for a sheet that has no description column yet."""
     day_rows = []
     for r, row in enumerate(grid):
         filled = _filled(row)
@@ -65,8 +71,10 @@ def _find_blocks(grid):
     blocks = []
     for r, days in day_rows:
         end = len(grid)
+        hidden = {c + desc_offset for c, _ in days} if desc_offset else set()
         for q in range(r + 1, len(grid)):
-            if q in day_row_numbers or _is_boundary(grid[q]):
+            shown = [None if i in hidden else v for i, v in enumerate(grid[q])] if hidden else grid[q]
+            if q in day_row_numbers or _is_boundary(shown):
                 end = q
                 break
         blocks.append({"day_row": r, "days": {d: c for c, d in days}, "end": end})
@@ -123,6 +131,57 @@ def _copy_style(source, target) -> None:
 
 # ---------- inserting a row ----------
 
+# ---------- making room for the description column ----------
+
+_COLREF = re.compile(r"(?<![A-Za-z0-9_])(\$?)([A-Z]{1,3})(\$?)(\d+)(?![\d(])")
+
+
+def _new_col(c: int) -> int:
+    """1-based column after adding a third column to every day: the pairs 1-2, 3-4, 5-6 become 1-2, 4-5, 7-8."""
+    return c + (c - 1) // 2
+
+
+def _widen_to_three(ws, year: int, month: int) -> bool:
+    """A sheet with two columns per day gets a third (description) column for every day.
+    Cells keep their styles, merged headers grow to three columns, SUM formulas follow the move."""
+    grid = [list(row) for row in ws.iter_rows(values_only=True)]
+    blocks = _find_blocks(grid, None)
+    if calendar_stride([b["days"] for b in blocks], year, month) != 2:
+        return False
+    max_row, max_col = ws.max_row, ws.max_column
+    widths = {}
+    for dim in list(ws.column_dimensions.values()):
+        if dim.width and dim.min and dim.max:
+            for c in range(dim.min, dim.max + 1):
+                widths[c] = dim.width
+    merges = [(m.min_row, m.min_col, m.max_row, m.max_col) for m in ws.merged_cells.ranges]
+    for m in list(ws.merged_cells.ranges):
+        ws.unmerge_cells(str(m))
+    for c in range(max_col, 1, -1):  # right to left, so nothing is overwritten
+        if _new_col(c) != c:
+            letter = get_column_letter(c)
+            ws.move_range(f"{letter}1:{letter}{max_row}", rows=0, cols=_new_col(c) - c)
+    for row in ws.iter_rows():
+        for cell in row:
+            if _is_formula(cell.value):
+                cell.value = _COLREF.sub(
+                    lambda m: m.group(1) + get_column_letter(_new_col(column_index_from_string(m.group(2))))
+                    + m.group(3) + m.group(4),
+                    cell.value,
+                )
+    for min_row, min_col, max_r, max_c in merges:
+        end = _new_col(max_c) + (1 if max_c % 2 == 0 else 0)  # a merge that ended on an amount column takes the new column too
+        ws.merge_cells(start_row=min_row, start_column=_new_col(min_col), end_row=max_r, end_column=end)
+    for key in list(ws.column_dimensions.keys()):
+        del ws.column_dimensions[key]
+    for c, width in widths.items():
+        ws.column_dimensions[get_column_letter(_new_col(c))].width = width
+    for c in range(1, _new_col(max_col) + 2):
+        if c % 3 == 0:
+            ws.column_dimensions[get_column_letter(c)].width = 28  # description columns
+    return True
+
+
 _REF = re.compile(r"(?<![A-Za-z0-9_])(\$?[A-Z]{1,3}\$?)(\d+)(?![\d(])")
 
 
@@ -177,10 +236,10 @@ def _write_item(ws, grid, block, col: int, name: str, amount: float, status: str
 def _add_day_column(ws, grid, block, year: int, month: int, day: int) -> int:
     """Gives a new day (for example Wednesday) its own column pair in an existing week block."""
     any_day, any_col = next(iter(block["days"].items()))
-    base = any_col - 2 * _weekday(year, month, any_day)
-    col = base + 2 * _weekday(year, month, day)
-    used = {c for c in block["days"].values()} | {c + 1 for c in block["days"].values()}
-    if col < 0 or col in used or col + 1 in used:
+    base = any_col - 3 * _weekday(year, month, any_day)
+    col = base + 3 * _weekday(year, month, day)
+    used = {c + k for c in block["days"].values() for k in (0, 1, 2)}
+    if col < 0 or col in used or col + 1 in used or col + 2 in used:
         raise ValueError("This sheet's layout has no free column for that day")
     ref_day, ref_col = min(block["days"].items(), key=lambda item: abs(item[1] - col))
     day_row = block["day_row"] + 1  # Excel row numbers from here on
@@ -197,7 +256,7 @@ def _add_day_column(ws, grid, block, year: int, month: int, day: int) -> int:
         letter = get_column_letter(col + 2)
         ws.cell(end + 1, col + 2, f"=SUM({letter}{day_row + 1}:{letter}{end})")
         _copy_style(ws.cell(end + 1, ref_col + 2), ws.cell(end + 1, col + 2))
-    for offset in (1, 2):
+    for offset in (1, 2, 3):
         width = ws.column_dimensions[get_column_letter(ref_col + offset)].width
         if width:
             ws.column_dimensions[get_column_letter(col + offset)].width = width
@@ -210,9 +269,9 @@ def _append_block(ws, blocks, grid, year: int, month: int, day: int, name: str, 
     base, ref = 0, None
     if blocks:
         any_day, any_col = next(iter(blocks[0]["days"].items()))
-        base = any_col - 2 * _weekday(year, month, any_day)
+        base = any_col - 3 * _weekday(year, month, any_day)
         ref = (blocks[0]["day_row"] + 1, any_col + 1, blocks[0]["end"] + 1)  # day row, column, sum row
-    col = base + 2 * _weekday(year, month, day)
+    col = base + 3 * _weekday(year, month, day)
     if col < 0:
         raise ValueError("This sheet's layout has no free column for that day")
     top = ws.max_row + 2  # one empty row between weeks
@@ -383,12 +442,18 @@ def _describe_calendar(ws, year: int, month: int, day: int, payment: dict) -> bo
             item = grid[r][col] if col < len(grid[r]) else None
             value = _as_amount(grid[r][col + 1] if col + 1 < len(grid[r]) else None)
             if isinstance(item, str) and value is not None and duplicate_key(item, value, iso) == key:
-                cell = ws.cell(r + 1, col + 1)
+                cell = ws.cell(r + 1, col + 3)  # the day's third column
                 if clear:
-                    had_note = cell.comment is not None
-                    cell.comment = None
-                    return had_note
-                return _set_note(cell, text)
+                    had = cell.value not in (None, "")
+                    cell.value = None
+                    return had
+                if (cell.value or "") == text:
+                    return False
+                cell.value = text
+                if text.startswith("="):
+                    cell.data_type = "s"  # text, never a formula
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                return True
     return False
 
 
@@ -443,7 +508,8 @@ def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tu
         changed = _flat_place(flat_sheet, payment, add_if_missing)
         changed |= _describe_flat(flat_sheet, payment)
     else:
-        changed = _place(
+        changed = _widen_to_three(sheet, year, month)
+        changed |= _place(
             sheet, year, month, day, payment["name"], float(payment["amount"]), payment["status"], add_if_missing
         )
         changed |= _describe_calendar(sheet, year, month, day, payment)
@@ -497,15 +563,17 @@ def _remove_calendar(ws, year: int, month: int, day: int, name: str, amount: flo
                 continue
             last = block["end"] - 1  # last item row of this block (0-based)
             for q in range(r, last):  # pull every item below one row up (value and colour)
-                for column in (col + 1, col + 2):
+                for column in (col + 1, col + 2, col + 3):  # name, amount, description
                     source, target = ws.cell(q + 2, column), ws.cell(q + 1, column)
                     target.value = source.value
                     target.fill = copy(source.fill)
+                    target.alignment = copy(source.alignment)
                     target.comment = _copy_note(source.comment)
-            for column in (col + 1, col + 2):  # the freed last row
+            for column in (col + 1, col + 2, col + 3):  # the freed last row
                 cell = ws.cell(last + 1, column)
                 cell.value = None
                 cell.fill = PatternFill(fill_type=None)
+                cell.alignment = Alignment()
                 cell.comment = None
             # When the whole last row of the week is now empty, take the row out too (it is the row
             # that adding this payment may have inserted), but always keep at least one item row.
@@ -543,7 +611,8 @@ def remove_payment(data: bytes, payment: dict) -> Tuple[Optional[bytes], str]:
             return None, "no-month"
         changed = _remove_flat(flat_sheet, payment)
     else:
-        changed = _remove_calendar(sheet, year, month, day, payment["name"], float(payment["amount"]))
+        widened = _widen_to_three(sheet, year, month)
+        changed = _remove_calendar(sheet, year, month, day, payment["name"], float(payment["amount"])) or widened
     if not changed:
         return None, "unchanged"
     buffer = io.BytesIO()
