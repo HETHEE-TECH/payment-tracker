@@ -46,10 +46,10 @@ function showNotice(message) {
   if (message) noticeTimer = setTimeout(() => { box.hidden = true; }, 6000);
 }
 
-// Tells the user which stored Excel files changed after adding, removing or changing the status of a payment.
+// Tells the user which stored Excel files changed after adding a payment or changing its status.
 function reportSync(result) {
   if (!result) return;
-  if (result.sync_error) showError("Done, but the stored Excel could not be updated: " + result.sync_error);
+  if (result.sync_error) showError("Saved, but the stored Excel could not be updated: " + result.sync_error);
   if (result.files_updated && result.files_updated.length) {
     showNotice("Stored Excel updated: " + result.files_updated.join(", "));
     loadFiles();
@@ -112,18 +112,24 @@ function renderList(items) {
         acts += btn("pending", "Undo", "");
         if (i.status === "delayed") acts += btn("paid", "Paid now", "ok");
       }
-      acts += btn("remove", "Remove", "");
+      acts += btn("edit", "Edit", "") + btn("remove", "Remove", "");
       const imgUrl = `${API}/payments/${i.id}/image?v=${imgVersion[i.id] || 0}`;
       const picker = (label) =>
         `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" data-img="${i.id}"></label>`;
-      const desc = i.description || "";
-      acts += `<span class="descctl"><input class="descinput${desc ? "" : " need"}" type="text" maxlength="500" ` +
-        `placeholder="Description (required)" autocomplete="off" value="${esc(desc)}" data-desc="${i.id}" aria-label="Description for ${esc(i.name)}" required>` +
-        `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button></span>`;
       acts += `<span class="imgctl">` + (i.has_image
         ? `<a class="thumb" href="${imgUrl}" target="_blank" rel="noopener" title="Open image"><img src="${imgUrl}" alt="Image for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
           picker("Change image") + btn("img-remove", "Remove image", "")
         : picker("Upload image")) + `</span>`;
+      if (editingId === i.id) {
+        return `<form class="item editrow" data-edit-form="${i.id}">` +
+          `<div class="addgrid">` +
+          `<div class="field"><label>Name</label><input name="name" required value="${esc(i.name)}"></div>` +
+          `<div class="field"><label>Amount (₹)</label><input name="amount" inputmode="decimal" required value="${i.amount}"></div>` +
+          `<div class="field"><label>Date</label><input name="date" type="date" required value="${i.date}"></div>` +
+          `<div class="row-actions"><button class="btn primary small" type="submit">Save</button>` +
+          `<button class="btn small" data-act="edit-cancel" data-id="${i.id}" type="button">Cancel</button></div>` +
+          `</div></form>`;
+      }
       return `<div class="item ${STATUS_CLASS[i.status]}${isToday ? " todayrow" : ""}">` +
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
@@ -201,6 +207,8 @@ function render() {
   }
 }
 
+let editingId = null; // the payment being edited; auto-refresh keeps the form open
+
 async function refresh() {
   try {
     showError("");
@@ -230,11 +238,13 @@ document.getElementById("list").addEventListener("click", async (e) => {
   if (!button) return;
   const id = button.dataset.id;
   const act = button.dataset.act;
+  if (act === "edit" || act === "edit-cancel") {
+    editingId = act === "edit" ? Number(id) : null;
+    render();
+    return;
+  }
   try {
-    if (act === "desc-save") {
-      await saveDescription(id, document.querySelector(`input[data-desc="${id}"]`), true);
-      return; // the list is not redrawn, so what you typed in the other rows stays
-    } else if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
+    if (act === "remove") await api("/payments/" + id, { method: "DELETE" });
     else if (act === "img-remove") await api(`/payments/${id}/image`, { method: "DELETE" });
     else reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) }));
     refresh();
@@ -243,57 +253,21 @@ document.getElementById("list").addEventListener("click", async (e) => {
   }
 });
 
-// Saves what is in one description box. An emptied box clears the saved description (and the Excel note).
-// The list is not redrawn, so an old description can never come back into another row.
-async function saveDescription(id, box, explicit) {
-  if (!box || box.dataset.busy) return;
-  const text = box.value.trim();
-  const saved = (box.defaultValue || "").trim();
-  if (text === saved) {
-    if (explicit && !text) {
-      showError("Description is required. Write a comment for this payment, then click Save.");
-      box.focus();
-    } else if (explicit) {
-      showNotice("Description is already saved.");
-    }
-    return;
-  }
-  box.dataset.busy = "1";
+document.getElementById("list").addEventListener("submit", async (e) => {
+  const form = e.target.closest("form[data-edit-form]");
+  if (!form) return;
+  e.preventDefault();
+  const body = {
+    name: form.elements.name.value.trim(),
+    amount: parseFloat(form.elements.amount.value.replace(/[^0-9.]/g, "")),
+    date: form.elements.date.value,
+  };
   try {
-    showError("");
-    const result = await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) });
-    box.defaultValue = text; // the saved value, used to see later whether the box was changed
-    box.value = text;
-    box.classList.toggle("need", !text);
-    const item = allItems.find((x) => String(x.id) === String(id));
-    if (item) item.description = text || null;
-    reportSync(result);
+    reportSync(await api("/payments/" + form.dataset.editForm, { method: "PUT", body: JSON.stringify(body) }));
+    editingId = null;
+    refresh();
   } catch (err) {
     showError(err.message);
-  } finally {
-    delete box.dataset.busy;
-  }
-}
-document.getElementById("list").addEventListener("keydown", (e) => {
-  const box = e.target.closest("input[data-desc]");
-  if (!box || e.key !== "Enter") return;
-  e.preventDefault();
-  saveDescription(box.dataset.desc, box, true);
-});
-// Leaving the box (or pressing Enter) saves whatever is in it, including an erased text.
-document.getElementById("list").addEventListener("change", (e) => {
-  const box = e.target.closest("input[data-desc]");
-  if (box) saveDescription(box.dataset.desc, box, false);
-});
-// The image cannot be chosen until the description is filled in.
-document.getElementById("list").addEventListener("click", (e) => {
-  const picker = e.target.closest("input[data-img]");
-  if (!picker) return;
-  const box = document.querySelector(`input[data-desc="${picker.dataset.img}"]`);
-  if (!box || !box.value.trim()) {
-    e.preventDefault();
-    showError("Write the description first (required), then upload the image.");
-    if (box) box.focus();
   }
 });
 
@@ -325,7 +299,6 @@ async function doImport(replace) {
       : `Nothing new to add. ${plural(r.duplicates, "payment")} already in the list.`;
     if (r.imported && r.duplicates) msg.textContent += ` Skipped ${plural(r.duplicates, "duplicate")} (same name, amount and date).`;
     if (r.skipped) msg.textContent += ` Skipped ${plural(r.skipped, "line")} that could not be read.`;
-    if (r.with_description) msg.textContent += ` ${plural(r.with_description, "description")} saved.`;
     msg.textContent += stored;
     document.getElementById("paste").value = "";
     refresh();
@@ -432,12 +405,6 @@ document.getElementById("list").addEventListener("change", async (e) => {
   const id = input.dataset.img;
   try {
     showError("");
-    const box = document.querySelector(`input[data-desc="${id}"]`);
-    const text = box ? box.value.trim() : "";
-    if (!text) throw new Error("Description is required. Write it first, then upload the image.");
-    if (text !== (box.defaultValue || "").trim()) {
-      reportSync(await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) }));
-    }
     const blob = await shrinkImage(input.files[0]);
     const form = new FormData();
     form.append("file", blob, "payment-image");
@@ -475,7 +442,7 @@ loadFiles();
 
 // Other people use the same link: pick up their changes without a manual reload.
 function refreshQuietly() {
-  if (document.hidden) return;
+  if (document.hidden || editingId !== null) return;
   const active = document.activeElement;
   if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return; // do not disturb typing
   refresh();

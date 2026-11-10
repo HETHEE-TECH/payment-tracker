@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from calendar_export import build_calendar_workbook
 from database import USING_POSTGRES, get_db, init_db
-from schemas import DescriptionUpdate, ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
+from schemas import ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
     decode_text,
@@ -93,12 +93,6 @@ def existing_keys(db) -> set:
     return {duplicate_key(r["name"], r["amount"], r["date"]) for r in rows}
 
 
-def existing_by_key(db) -> dict:
-    """key -> (payment id, description) for every payment already in the list."""
-    rows = db.execute("SELECT id, name, amount, date, description FROM payments").fetchall()
-    return {duplicate_key(r["name"], r["amount"], r["date"]): (r["id"], r["description"]) for r in rows}
-
-
 _SYNC_LOCK = threading.Lock()  # one writer at a time, so two people never overwrite each other's Excel edit
 
 
@@ -108,7 +102,7 @@ def sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
 
 
 def remove_from_stored_excels(db, payment: dict) -> dict:
-    """Takes a deleted payment out of every stored Excel file, so the sheets match the list."""
+    """Takes a removed (or edited) payment out of every stored Excel file."""
     result = {"files_updated": [], "sync_error": None}
     with _SYNC_LOCK:
         try:
@@ -119,8 +113,8 @@ def remove_from_stored_excels(db, payment: dict) -> dict:
             ).fetchall()
             for row in files:
                 try:
-                    new_data, state = remove_payment(bytes(row["data"]), payment)
-                except Exception as error:  # one unreadable file must not block the others
+                    new_data, _ = remove_payment(bytes(row["data"]), payment)
+                except Exception as error:
                     result["sync_error"] = f"{row['filename']}: {error}"
                     continue
                 if new_data is not None:
@@ -167,7 +161,7 @@ def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
             month_rows = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT name, amount, date, status, description FROM payments WHERE date LIKE ? ORDER BY date, name",
+                    "SELECT name, amount, date, status FROM payments WHERE date LIKE ? ORDER BY date, name",
                     (month_key + "-%",),
                 ).fetchall()
             ]
@@ -231,6 +225,38 @@ def create_payment(payload: PaymentCreate, db: sqlite3.Connection = Depends(get_
     return {**created, **sync_stored_excels(db, created)}
 
 
+@app.put("/api/payments/{payment_id}", response_model=PaymentOut)
+def edit_payment(payment_id: int, payload: PaymentCreate, db: sqlite3.Connection = Depends(get_db)):
+    old = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+    if old is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    new_key = duplicate_key(payload.name, payload.amount, payload.date.isoformat())
+    others = db.execute("SELECT name, amount, date FROM payments WHERE id <> ?", (payment_id,)).fetchall()
+    if new_key in {duplicate_key(r["name"], r["amount"], r["date"]) for r in others}:
+        raise HTTPException(
+            status_code=409,
+            detail="Another payment already has this name, amount and date.",
+        )
+    old = dict(old)
+    # a delayed payment keeps "pay on next day" for the new date
+    new_date = next_day(payload.date.isoformat()) if old["status"] == "delayed" else None
+    db.execute(
+        "UPDATE payments SET name = ?, amount = ?, date = ?, new_date = ? WHERE id = ?",
+        (payload.name.strip(), payload.amount, payload.date.isoformat(), new_date, payment_id),
+    )
+    db.commit()
+    updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+    removed = remove_from_stored_excels(db, old)
+    added = sync_stored_excels(db, updated)
+    has_image = db.execute("SELECT COUNT(*) AS n FROM payment_images WHERE payment_id = ?", (payment_id,)).fetchone()["n"]
+    return {
+        **updated,
+        "has_image": bool(has_image),
+        "files_updated": sorted(set(removed["files_updated"] + added["files_updated"])),
+        "sync_error": removed["sync_error"] or added["sync_error"],
+    }
+
+
 @app.patch("/api/payments/{payment_id}/status", response_model=PaymentOut)
 def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
@@ -247,39 +273,16 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
     return {**updated, **sync_stored_excels(db, updated, add_if_missing=payload.status != "pending")}
 
 
-@app.put("/api/payments/{payment_id}/description", response_model=PaymentOut)
-def update_description(payment_id: int, payload: DescriptionUpdate, db: sqlite3.Connection = Depends(get_db)):
-    """Saves the comment for a payment and writes it into the stored Excel files too.
-    An empty text clears the description (and the Excel note), unless the payment has an image."""
-    text = payload.description.strip()
-    if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    if not text:
-        images = db.execute("SELECT COUNT(*) AS n FROM payment_images WHERE payment_id = ?", (payment_id,)).fetchone()
-        if images["n"]:
-            raise HTTPException(
-                status_code=422,
-                detail="This payment has an image, so it needs a description. Remove the image first to clear it.",
-            )
-    db.execute("UPDATE payments SET description = ? WHERE id = ?", (text or None, payment_id))
-    db.commit()
-    updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
-    if text:
-        return {**updated, **sync_stored_excels(db, updated)}
-    # Cleared: take the note out of the sheets, but never add the payment to a sheet just for that.
-    return {**updated, **sync_stored_excels(db, {**updated, "clear_description": True}, add_if_missing=False)}
-
-
-@app.delete("/api/payments/{payment_id}")
+@app.delete("/api/payments/{payment_id}", status_code=204)
 def delete_payment(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    payment = dict(row)
+    old = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+    if old is not None:
+        remove_from_stored_excels(db, dict(old))
     db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
-    db.execute("DELETE FROM payments WHERE id = ?", (payment_id,))
+    cur = db.execute("DELETE FROM payments WHERE id = ?", (payment_id,))
     db.commit()
-    return remove_from_stored_excels(db, payment)  # the stored Excel files lose it too
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Payment not found")
 
 
 @app.delete("/api/payments")
@@ -304,33 +307,21 @@ def import_payments(payload: ImportRequest, db: sqlite3.Connection = Depends(get
     if payload.replace:
         db.execute("DELETE FROM payment_images")
         db.execute("DELETE FROM payments")
-        known = {}
+        seen = set()
     else:
-        known = existing_by_key(db)
-    new_rows, duplicates, described = [], 0, 0
-    for name, amount, day, description in good:
+        seen = existing_keys(db)
+    new_rows, duplicates = [], 0
+    for name, amount, day in good:
         key = duplicate_key(name, amount, day)
-        if key in known:
+        if key in seen:
             duplicates += 1  # already in the list, or repeated inside this file
-            payment_id, old = known[key]
-            if description and payment_id is not None and not (old or "").strip():
-                # the payment is already there without a description: fill it in, never overwrite one
-                db.execute("UPDATE payments SET description = ? WHERE id = ?", (description, payment_id))
-                known[key] = (payment_id, description)
-                described += 1
             continue
-        known[key] = (None, description or None)
-        new_rows.append((name, amount, day, description or None))
+        seen.add(key)
+        new_rows.append((name, amount, day))
     if new_rows:
-        db.executemany("INSERT INTO payments (name, amount, date, description) VALUES (?, ?, ?, ?)", new_rows)
+        db.executemany("INSERT INTO payments (name, amount, date) VALUES (?, ?, ?)", new_rows)
     db.commit()
-    with_description = described + sum(1 for row in new_rows if row[3])
-    return {
-        "imported": len(new_rows),
-        "skipped": skipped,
-        "duplicates": duplicates,
-        "with_description": with_description,
-    }
+    return {"imported": len(new_rows), "skipped": skipped, "duplicates": duplicates}
 
 
 @app.post("/api/parse-file")
@@ -432,11 +423,8 @@ def delete_file(file_id: int, db: sqlite3.Connection = Depends(get_db)):
 
 @app.post("/api/payments/{payment_id}/image")
 def upload_image(payment_id: int, file: UploadFile = File(...), db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute("SELECT description FROM payments WHERE id = ?", (payment_id,)).fetchone()
-    if row is None:
+    if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Payment not found")
-    if not (row["description"] or "").strip():
-        raise HTTPException(status_code=422, detail="Write a description for this payment before uploading an image.")
     data = file.file.read(MAX_IMAGE_BYTES + 1)
     if len(data) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Image is too large (limit is 3 MB)")
