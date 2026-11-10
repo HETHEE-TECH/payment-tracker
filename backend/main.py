@@ -311,7 +311,7 @@ def import_payments(payload: ImportRequest, db: sqlite3.Connection = Depends(get
     else:
         seen = existing_keys(db)
     new_rows, duplicates = [], 0
-    for name, amount, day in good:
+    for name, amount, day, *_ in good:  # tolerate extra fields
         key = duplicate_key(name, amount, day)
         if key in seen:
             duplicates += 1  # already in the list, or repeated inside this file
