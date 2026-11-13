@@ -85,7 +85,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - A payment you add by hand is written into the stored Excel of its month, under its day. A new day
   gets its own column, a new week gets a new block at the bottom, and when a day has no free row a
   row is inserted above the SUM row and the SUM formulas are extended.
-- Paid, Delayed and Cancelled colour the payment's two cells green, yellow and red. Undo removes the colour.
+- Paid, Delayed and Cancelled colour the payment's name, amount and description cells green, yellow and red. Undo removes the colour.
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
 - Every payment has a Description box next to the image buttons. It is required: the image cannot be
   uploaded until the description is written. Whatever is left in the box is saved (also when you leave the box

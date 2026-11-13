@@ -74,6 +74,7 @@ def _fill_sheet(ws, year: int, month: int, by_day) -> None:
                     fill = PatternFill("solid", fgColor=color)
                     name_cell.fill = fill
                     amount_cell.fill = fill
+                    ws.cell(row + 2 + index, col + 2).fill = fill  # the description cell too
             letter = get_column_letter(col + 1)
             total = ws.cell(sum_row, col + 1, f"=SUM({letter}{row + 2}:{letter}{row + 1 + most})")
             total.font = bold

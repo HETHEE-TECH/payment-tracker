@@ -108,10 +108,10 @@ def _clean_number(amount: float):
 # ---------- colours ----------
 
 def _colour(ws, excel_row: int, excel_col: int, status: str) -> bool:
-    """Colours the item cell and the amount cell. Returns True when something changed."""
+    """Colours the item, amount and description cells of one payment. Returns True when something changed."""
     wanted = STATUS_COLORS.get(status)
     changed = False
-    for column in (excel_col, excel_col + 1):
+    for column in (excel_col, excel_col + 1, excel_col + 2):
         cell = ws.cell(excel_row, column)
         current = cell.fill.fgColor.rgb if cell.fill and cell.fill.fill_type == "solid" else None
         if wanted:
@@ -179,6 +179,13 @@ def _widen_to_three(ws, year: int, month: int) -> bool:
     for c in range(1, _new_col(max_col) + 2):
         if c % 3 == 0:
             ws.column_dimensions[get_column_letter(c)].width = 28  # description columns
+    moved = [list(row) for row in ws.iter_rows(values_only=True)]
+    for block in _find_blocks(moved):  # a coloured payment gets its new description cell coloured too
+        for col in block["days"].values():
+            for q in range(block["day_row"] + 1, block["end"]):
+                name_cell = ws.cell(q + 1, col + 1)
+                if name_cell.fill and name_cell.fill.fill_type == "solid":
+                    ws.cell(q + 1, col + 3).fill = copy(name_cell.fill)
     return True
 
 
@@ -453,6 +460,7 @@ def _describe_calendar(ws, year: int, month: int, day: int, payment: dict) -> bo
                 if text.startswith("="):
                     cell.data_type = "s"  # text, never a formula
                 cell.alignment = Alignment(wrap_text=True, vertical="top")
+                cell.fill = copy(ws.cell(r + 1, col + 1).fill)  # same colour as the payment
                 return True
     return False
 
