@@ -4,7 +4,13 @@ import re
 from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
-Payment = Tuple[str, float, str]  # (name, amount, YYYY-MM-DD)
+Payment = Tuple[str, float, str, str]  # (name, amount, YYYY-MM-DD, description - "" when there is none)
+DESCRIPTION_HEADERS = ("description", "comment", "comments", "remarks", "remark", "note", "notes")
+MAX_DESCRIPTION = 500
+
+
+def clip_description(text) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip()[:MAX_DESCRIPTION]
 
 DATE_RE = re.compile(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4}")
 NUMBER_RE = re.compile(r"(?:₹|Rs\.?|INR)?\s*(\d[\d,]*(?:\.\d+)?)", re.IGNORECASE)
@@ -76,11 +82,14 @@ def format_amount(amount: float) -> str:
 
 
 def payments_to_text(payments: List[Payment]) -> str:
-    """Turns parsed rows into editable 'name,amount,date' lines for the import box."""
+    """Turns parsed rows into editable 'name,amount,date,description' lines for the import box."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
-    for name, amount, day, *_ in payments:
-        writer.writerow([name, format_amount(amount), day])
+    for name, amount, day, *rest in payments:
+        row = [name, format_amount(amount), day]
+        if rest and rest[0]:
+            row.append(rest[0])
+        writer.writerow(row)
     return buffer.getvalue()
 
 
@@ -103,13 +112,24 @@ def rows_to_payments(rows) -> Tuple[List[Payment], int]:
     rows: list of rows, each a list of cells.
     Finds the date cell, the amount cell and the name cell in each row, so the
     column order does not matter. A header row at the top is skipped.
-    Returns (payments, skipped_row_count).
+    A column named Description (or Comment, Remarks, Note) is read as the description. Without a header
+    line, text after the name is the description. Returns (payments, skipped_row_count).
     """
     good: List[Payment] = []
     skipped = 0
     first_row = True
-    for row in rows:
-        cells = [c for c in (_cell_text(c) for c in row) if c != ""]
+    all_rows = [[_cell_text(c) for c in row] for row in rows]
+    first = next((r for r in all_rows if any(r)), None)
+    has_header = first is not None and not any(parse_date(c) or AMOUNT_CELL_RE.match(c) for c in first if c)
+    desc_col = None
+    if has_header:
+        desc_col = next((i for i, c in enumerate(first) if c.strip().lower() in DESCRIPTION_HEADERS), None)
+    for texts in all_rows:
+        description = ""
+        if desc_col is not None and desc_col < len(texts):
+            description = clip_description(texts[desc_col])
+            texts = texts[:desc_col] + [""] + texts[desc_col + 1:]  # keep it out of the name
+        cells = [c for c in texts if c != ""]
         if not cells:
             continue
         is_first, first_row = first_row, False
@@ -135,7 +155,9 @@ def rows_to_payments(rows) -> Tuple[List[Payment], int]:
         name = names[0] if names else ""
 
         if name and amount is not None and day:
-            good.append((name, amount, day))
+            if not has_header and not description and len(names) > 1:
+                description = clip_description(", ".join(names[1:]))  # text after the name, no header line
+            good.append((name, amount, day, description))
         elif is_first and day is None and amount is None:
             continue  # header row such as: name, amount, date
         else:
@@ -205,13 +227,29 @@ def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def calendar_payments(rows) -> Optional[Tuple[List[Payment], int]]:
+def calendar_stride(blocks_days, year: int, month: int) -> Optional[int]:
+    """Columns per day in a calendar sheet: 2 (name, amount) or 3 (name, amount, description).
+    blocks_days: one {day: column} dict per week block. None when no block has two days to compare."""
+    first = (date(year, month, 1).weekday() + 1) % 7  # Sunday = 0
+    for days in blocks_days:
+        items = sorted(days.items())
+        for (d1, c1), (d2, c2) in zip(items, items[1:]):
+            diff = ((first + d2 - 1) % 7) - ((first + d1 - 1) % 7)
+            if diff > 0 and (c2 - c1) % diff == 0 and (c2 - c1) // diff in (2, 3):
+                return (c2 - c1) // diff
+    return None
+
+
+def calendar_payments(rows, notes=None) -> Optional[Tuple[List[Payment], int]]:
     """
     Reads a calendar-style sheet: a title like 'November 2026', weekday headers, a row of day
-    numbers, then under each day an item cell and an amount cell (two columns per day) until the
-    next weekday/day row or a SUM row. Several week blocks stacked down the sheet are supported.
+    numbers, then under each day an item cell, an amount cell and (newer sheets) a description cell
+    (two or three columns per day) until the next weekday/day row or a SUM row. Several week blocks stacked down the sheet are supported.
     Returns None when the sheet does not look like this (so the flat reader can try instead).
     rows must be read WITHOUT cached formula values, so SUM rows are recognised as formulas.
+    The description is the third column of the day. In older sheets with two columns per day, a note
+    on an item's name cell is used instead: notes is an optional grid (same rows and columns) with the
+    note text of each cell.
     """
     grid = [list(r) for r in rows]
     year_month = None
@@ -241,6 +279,8 @@ def calendar_payments(rows) -> Optional[Tuple[List[Payment], int]]:
             "Add a title cell such as 'November 2026' at the top."
         )
     year, month = year_month
+    stride = calendar_stride([{d: c for c, d in days} for _, days in day_rows], year, month)
+    has_description_column = stride == 3
 
     def is_boundary(row) -> bool:
         cells = [v for v in row if v is not None and str(v).strip() != ""]
@@ -257,8 +297,10 @@ def calendar_payments(rows) -> Optional[Tuple[List[Payment], int]]:
     skipped = 0
     for r, days in day_rows:
         end = len(grid)
+        hidden = {c + 2 for c, _ in days} if has_description_column else set()  # free text, not a total row
         for q in range(r + 1, len(grid)):
-            if q in day_row_numbers or is_boundary(grid[q]):
+            shown = [None if i in hidden else v for i, v in enumerate(grid[q])] if hidden else grid[q]
+            if q in day_row_numbers or is_boundary(shown):
                 end = q
                 break
         for col, day in days:
@@ -276,7 +318,10 @@ def calendar_payments(rows) -> Optional[Tuple[List[Payment], int]]:
                 if not name_text and (amount is None or amount == 0 or amount == ""):
                     continue  # empty pair, or a 0 with no item
                 if name_text and amount_value and amount_value > 0:
-                    good.append((name_text, float(amount_value), day_iso))
+                    text = _cell_text(row[col + 2]) if has_description_column and col + 2 < len(row) else ""
+                    if not text and notes and q < len(notes) and col < len(notes[q]):
+                        text = notes[q][col]  # an older sheet: the note on the name cell
+                    good.append((name_text, float(amount_value), day_iso, clip_description(text)))
                 elif name_text and (amount is None or amount == 0 or amount == ""):
                     # item with no amount: nothing to pay, skip quietly only when it is 0
                     if amount == 0:
@@ -299,8 +344,19 @@ def parse_xlsx(data: bytes) -> Tuple[List[Payment], int]:
         raise ValueError("Could not read this Excel file. Make sure it is a real .xlsx file.")
     good: List[Payment] = []
     skipped = 0
-    for sheet_f, sheet_v in zip(with_formulas.worksheets, with_values.worksheets):
-        calendar = calendar_payments(list(row) for row in sheet_f.iter_rows(values_only=True))
+    full = None  # read lazily: notes can only be read when the file is not opened read-only
+    for index, (sheet_f, sheet_v) in enumerate(zip(with_formulas.worksheets, with_values.worksheets)):
+        grid = [list(row) for row in sheet_f.iter_rows(values_only=True)]
+        calendar = calendar_payments(grid)
+        if calendar is not None:  # a calendar sheet: read the notes too (a note is the description)
+            if full is None:
+                try:
+                    full = openpyxl.load_workbook(io.BytesIO(data))
+                except Exception:
+                    full = False
+            if full:
+                notes = [[(c.comment.text if c.comment else "") for c in row] for row in full.worksheets[index].iter_rows()]
+                calendar = calendar_payments(grid, notes)
         if calendar is not None:
             sheet_good, sheet_skipped = calendar
         else:
@@ -335,7 +391,7 @@ def _parse_pdf_line(line: str) -> Optional[Payment]:
     name = re.sub(r"\s+", " ", name).strip(" -–|:,")
     if not name:
         return None
-    return name, amount, day
+    return name, amount, day, ""
 
 
 def parse_pdf(data: bytes) -> Tuple[List[Payment], int]:
