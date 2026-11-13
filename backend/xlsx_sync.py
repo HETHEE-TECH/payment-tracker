@@ -19,11 +19,13 @@ from typing import List, Optional, Tuple
 
 import openpyxl
 from openpyxl.comments import Comment
+from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import Alignment, PatternFill
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 from utils import (
-    WEEKDAYS, _day_number, _is_formula, _month_year, calendar_stride, duplicate_key, parse_amount, parse_date,
+    HEADER_COLUMNS, WEEKDAYS, _day_number, _is_formula, _month_year, calendar_stride, duplicate_key,
+    parse_amount, parse_date,
 )
 
 STATUS_COLORS = {"paid": "FF92D050", "delayed": "FFFFFF00", "cancelled": "FFFF7C80"}
@@ -130,6 +132,66 @@ def _copy_style(source, target) -> None:
 
 
 # ---------- inserting a row ----------
+
+# ---------- header columns next to the month title ----------
+
+def _title_cell(ws):
+    """The cell holding the month title (for example 'November 2026'), looked for in the first rows."""
+    for row in ws.iter_rows(max_row=3):
+        for cell in row:
+            if isinstance(cell.value, str) and _month_year(cell.value):
+                return cell
+    return None
+
+
+def _ensure_header_columns(ws) -> bool:
+    """Reminder, Apple, Orange, Mango as columns right after the month title, in the title's style.
+    Headers that are already there are left alone; the missing ones go in the next free cells."""
+    title = _title_cell(ws)
+    if title is None:
+        return False
+    row, start = title.row, title.column + 1
+    for merged in ws.merged_cells.ranges:
+        if merged.min_row <= row <= merged.max_row and merged.min_col <= title.column <= merged.max_col:
+            start = merged.max_col + 1  # the title is merged over several columns: begin after it
+    present = {
+        str(ws.cell(row, c).value).strip().lower()
+        for c in range(start, ws.max_column + 1)
+        if not isinstance(ws.cell(row, c), MergedCell) and ws.cell(row, c).value not in (None, "")
+    }
+    changed, column = False, start
+    for label in HEADER_COLUMNS:
+        if label.lower() in present:
+            continue
+        while isinstance(ws.cell(row, column), MergedCell) or ws.cell(row, column).value not in (None, ""):
+            column += 1  # skip cells that are already used
+        cell = ws.cell(row, column, label)
+        _copy_style(title, cell)
+        column += 1
+        changed = True
+    return changed
+
+
+def prepare_xlsx(data: bytes) -> Optional[bytes]:
+    """For a file that is uploaded: every month sheet gets the description column for each day and the
+    header columns. Returns the new file, or None when nothing had to change (or it cannot be read)."""
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(data))
+        changed = False
+        for ws in workbook.worksheets:
+            month = _sheet_month(ws)
+            if month is None:
+                continue
+            changed |= _widen_to_three(ws, *month)
+            changed |= _ensure_header_columns(ws)
+        if not changed:
+            return None
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+    except Exception:
+        return None  # an unreadable or unusual file is stored exactly as it was uploaded
+
 
 # ---------- making room for the description column ----------
 
@@ -517,6 +579,7 @@ def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tu
         changed |= _describe_flat(flat_sheet, payment)
     else:
         changed = _widen_to_three(sheet, year, month)
+        changed |= _ensure_header_columns(sheet)
         changed |= _place(
             sheet, year, month, day, payment["name"], float(payment["amount"]), payment["status"], add_if_missing
         )

@@ -19,6 +19,8 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from utils import HEADER_COLUMNS
+
 MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December"]
 WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
@@ -28,7 +30,10 @@ STATUS_FILL = {"paid": "92D050", "delayed": "FFFF00", "cancelled": "FF7C80"}
 def _fill_sheet(ws, year: int, month: int, by_day) -> None:
     title = ws.cell(1, 1, f"{MONTH_NAMES[month - 1]} {year}")
     title.font = Font(bold=True, size=14)
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=21)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=6)  # the title covers two days
+    for offset, label in enumerate(HEADER_COLUMNS):  # Reminder, Apple, Orange, Mango right next to it
+        head = ws.cell(1, 7 + offset, label)
+        head.font = Font(bold=True, size=14)
 
     first_weekday = (date(year, month, 1).weekday() + 1) % 7  # Sunday = 0
     days_in_month = monthrange(year, month)[1]

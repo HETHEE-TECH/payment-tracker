@@ -99,6 +99,10 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   a Description / Comment / Remarks column in a CSV or Excel table, or the third column of each day in a
   calendar sheet (an old note on the name cell is read too). It is optional on import. A payment that is already in the list gets the description only when it
   has none yet; an existing description is never overwritten.
+- Every calendar sheet gets the header columns Reminder, Apple, Orange and Mango in the title row, right
+  after the month title (for example `November 2026`), in the title's style. This happens when an .xlsx file
+  is uploaded to Stored files, when the app updates a stored sheet, and in newly exported month sheets.
+  Headers that are already there are not added twice. The cells below them are left empty.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
 - Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.
