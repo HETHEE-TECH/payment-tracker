@@ -63,22 +63,80 @@ function showError(message) {
 }
 
 // ---------- rendering ----------
+// Status order and colours used by the dashboard cards, the donut and the bar.
+const DASH_STATUSES = [
+  ["paid", "Paid", "ok", "--ok-solid"],
+  ["pending", "Pending", "pend", "--pend-solid"],
+  ["delayed", "Delayed", "warn", "--warn-solid"],
+  ["cancelled", "Cancelled", "bad", "--bad-solid"],
+];
+
+// What the dashboard is counting, from the filters that are set (for example "November 2026 · Paid").
+function scopeLabel() {
+  const parts = [];
+  const date = [filters.day ? Number(filters.day) : "", filters.month ? MONTH_NAMES[Number(filters.month) - 1] : "", filters.year]
+    .filter(Boolean).join(" ");
+  if (date) parts.push(date);
+  if (filters.status) parts.push(filters.status.charAt(0).toUpperCase() + filters.status.slice(1));
+  if (filters.q.trim()) parts.push(`\u201c${filters.q.trim()}\u201d`);
+  return parts.length ? parts.join(" \u00b7 ") : "All payments";
+}
+
 function renderSummary(s) {
-  const stat = (label, part, dot) =>
-    `<div class="stat"><span class="k">${dot ? `<span class="dot ${dot}"></span>` : ""}${label}</span>` +
-    `<span class="v num">${money(part.amount)}</span>` +
-    `<span class="c">${part.count} ${part.count === 1 ? "payment" : "payments"}</span></div>`;
-  document.getElementById("stats").innerHTML =
-    stat("Total", s.total, "") +
-    stat("Paid", s.paid, "ok") +
-    stat("Delayed", s.delayed, "warn") +
-    stat("Cancelled", s.cancelled, "bad") +
-    stat("Still to pay", s.to_pay, "");
-  const base = s.total.amount || 1;
-  document.getElementById("bar").innerHTML =
-    `<span class="ok" style="width:${(s.paid.amount / base) * 100}%"></span>` +
-    `<span class="warn" style="width:${(s.delayed.amount / base) * 100}%"></span>` +
-    `<span class="bad" style="width:${(s.cancelled.amount / base) * 100}%"></span>`;
+  const base = s.total.amount;
+  const pct = (part) => (base ? (part.amount / base) * 100 : 0);
+  const count = (n) => `${n} ${n === 1 ? "payment" : "payments"}`;
+  const text = (id, value) => { document.getElementById(id).textContent = value; };
+  text("dash-scope", scopeLabel());
+  text("dash-total", money(s.total.amount));
+  text("dash-total-count", count(s.total.count));
+  text("dash-topay", money(s.to_pay.amount));
+  text("dash-topay-count", count(s.to_pay.count));
+  text("dash-paid-pct", `${Math.round(pct(s.paid))}%`);
+  document.getElementById("dash-cards").innerHTML = DASH_STATUSES.map(([key, label, dot]) =>
+    `<div class="card"><span class="k"><span class="dot ${dot}"></span>${label}</span>` +
+    `<span class="v num">${money(s[key].amount)}</span>` +
+    `<span class="c">${count(s[key].count)} \u00b7 ${Math.round(pct(s[key]))}%</span></div>`
+  ).join("");
+  // Donut and bar: one slice per status, sized by amount.
+  let at = 0;
+  const stops = [];
+  DASH_STATUSES.forEach(([key, , , cssVar]) => {
+    const share = pct(s[key]);
+    if (share > 0) stops.push(`var(${cssVar}) ${at}% ${at + share}%`);
+    at += share;
+  });
+  document.getElementById("dash-donut").style.background = stops.length ? `conic-gradient(${stops.join(", ")})` : "";
+  document.getElementById("bar").innerHTML = DASH_STATUSES.map(([key, , dot]) =>
+    `<span class="${dot}" style="width:${pct(s[key])}%"></span>`
+  ).join("");
+}
+
+// Month-wise totals: one row per month. Only the search and status filters apply; the date filters do not,
+// so every month stays listed. Clicking a month filters the list below to that month.
+function renderMonths() {
+  const q = filters.q.trim().toLowerCase();
+  const months = new Map();
+  allItems.forEach((i) => {
+    if ((q && !i.name.toLowerCase().includes(q)) || (filters.status && i.status !== filters.status)) return;
+    const key = i.date.slice(0, 7);
+    if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
+    const m = months.get(key);
+    m.total += i.amount; m.count++; m[i.status] += i.amount;
+  });
+  const rows = [...months.values()].sort((a, b) => (a.key < b.key ? 1 : -1)); // newest month first
+  const box = document.getElementById("dash-months");
+  if (!rows.length) { box.innerHTML = `<div class="empty">No payments yet.</div>`; return; }
+  const biggest = Math.max(...rows.map((m) => m.total)) || 1;
+  box.innerHTML = rows.map((m) => {
+    const [year, month] = m.key.split("-");
+    const label = `${MONTH_NAMES[Number(month) - 1]} ${year}`;
+    const on = filters.year === year && filters.month === month && !filters.day;
+    const slices = DASH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${(m[key] / biggest) * 100}%"></span>`).join("");
+    return `<button type="button" class="mrow" data-month="${m.key}" aria-pressed="${on}" aria-label="${label}: ${money(m.total)}, ${m.count} ${m.count === 1 ? "payment" : "payments"}">` +
+      `<span class="mname">${label}</span><span class="mtrack" aria-hidden="true">${slices}</span>` +
+      `<span class="mval num">${money(m.total)}</span><span class="mcount">${m.count} ${m.count === 1 ? "payment" : "payments"}</span></button>`;
+  }).join("");
 }
 
 const imgVersion = {}; // bumps when an image changes, so the browser shows the new one
@@ -194,6 +252,7 @@ function render() {
     : `${allItems.length} ${allItems.length === 1 ? "payment" : "payments"}`;
   document.getElementById("f-clear").hidden = !active;
   renderSummary(summarize(items));
+  renderMonths();
   if (active && !items.length && allItems.length) {
     document.getElementById("list").innerHTML = `<div class="empty">No payments match these filters. Click Clear filters to see everything.</div>`;
   } else {
@@ -218,6 +277,17 @@ document.getElementById("f-status").addEventListener("change", (e) => { filters.
 document.getElementById("f-year").addEventListener("change", (e) => { filters.year = e.target.value; render(); });
 document.getElementById("f-month").addEventListener("change", (e) => { filters.month = e.target.value; render(); });
 document.getElementById("f-day").addEventListener("change", (e) => { filters.day = e.target.value; render(); });
+document.getElementById("dash-months").addEventListener("click", (e) => {
+  const row = e.target.closest("button[data-month]");
+  if (!row) return;
+  const [year, month] = row.dataset.month.split("-");
+  const same = filters.year === year && filters.month === month && !filters.day;
+  filters.year = same ? "" : year; // clicking the chosen month again shows every month
+  filters.month = same ? "" : month;
+  filters.day = "";
+  buildFilterOptions();
+  render();
+});
 document.getElementById("f-clear").addEventListener("click", () => {
   filters.q = filters.status = filters.year = filters.month = filters.day = "";
   document.getElementById("f-search").value = "";

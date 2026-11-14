@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <div class="wrap">
@@ -21,9 +21,29 @@
     <div id="error" class="banner error" hidden></div>
     <div id="notice" class="banner notice" role="status" hidden></div>
 
-    <section class="summary" aria-label="Summary">
-      <div class="stats" id="stats"></div>
+    <section class="dashboard" aria-labelledby="dash-title">
+      <div class="dash-head">
+        <h2 id="dash-title">Dashboard</h2>
+        <span id="dash-scope" class="hint"></span>
+      </div>
+      <div class="dash-main">
+        <div class="dash-total">
+          <span class="k">Total amount</span>
+          <span class="big num" id="dash-total"></span>
+          <span class="c" id="dash-total-count"></span>
+          <span class="topay"><span class="k">Still to pay</span> <span class="num" id="dash-topay"></span> <span class="c" id="dash-topay-count"></span></span>
+        </div>
+        <div class="donut" id="dash-donut" aria-hidden="true"><div class="hole"><b id="dash-paid-pct">0%</b><small>paid</small></div></div>
+      </div>
+      <div class="cards" id="dash-cards"></div>
       <div class="bar" id="bar" aria-hidden="true"></div>
+      <div class="months">
+        <div class="dash-head">
+          <h3 id="months-title">Month-wise total</h3>
+          <span class="hint">Click a month to show only its payments</span>
+        </div>
+        <div class="mlist" id="dash-months" role="group" aria-labelledby="months-title"></div>
+      </div>
     </section>
 
     <section class="tools">
@@ -106,6 +126,6 @@
     <div id="list" class="list"></div>
   </div>
 
-  <script src="script.js?v=13"></script>
+  <script src="script.js?v=15"></script>
 </body>
 </html>
