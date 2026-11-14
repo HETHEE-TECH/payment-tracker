@@ -7,8 +7,6 @@ from typing import List, Optional, Tuple
 Payment = Tuple[str, float, str, str]  # (name, amount, YYYY-MM-DD, description - "" when there is none)
 DESCRIPTION_HEADERS = ("description", "comment", "comments", "remarks", "remark", "note", "notes")
 MAX_DESCRIPTION = 500
-# Header columns every calendar sheet gets next to its month title ("November 2026").
-HEADER_COLUMNS = ("Reminder", "Apple", "Orange", "Mango")
 
 
 def clip_description(text) -> str:

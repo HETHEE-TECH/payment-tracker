@@ -28,7 +28,7 @@ from utils import (
     payments_to_text,
     sniff_image,
 )
-from xlsx_sync import apply_payment, prepare_xlsx, remove_payment
+from xlsx_sync import apply_payment, remove_payment
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
@@ -385,8 +385,6 @@ def store_file(file: UploadFile = File(...), db: sqlite3.Connection = Depends(ge
     existing = db.execute("SELECT id, filename FROM files WHERE sha256 = ?", (digest,)).fetchone()
     if existing:
         return {"id": existing["id"], "filename": existing["filename"], "already_stored": True}
-    if extension == ".xlsx":
-        data = prepare_xlsx(data) or data  # month sheets get their description and header columns
     cur = db.execute(
         "INSERT INTO files (filename, content_type, size, sha256, uploaded_at, data) VALUES (?, ?, ?, ?, ?, ?)",
         (
