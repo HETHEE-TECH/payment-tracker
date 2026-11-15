@@ -128,6 +128,15 @@ function renderMonths() {
   const box = document.getElementById("dash-months");
   if (!rows.length) { box.innerHTML = `<div class="empty">No payments yet.</div>`; return; }
   const biggest = Math.max(...rows.map((m) => m.total)) || 1;
+  const all = { total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 };
+  rows.forEach((m) => { for (const k in all) all[k] += m[k]; });
+  const none = !filters.year && !filters.month && !filters.day;
+  const sum = DASH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${all.total ? (all[key] / all.total) * 100 : 0}%"></span>`).join("");
+  const grandTotal = `<button type="button" class="mrow mall" data-month="all" aria-pressed="${none}" ` +
+    `aria-label="All months: ${money(all.total)}, ${all.count} ${all.count === 1 ? "payment" : "payments"}">` +
+    `<span class="mname">All months</span><span class="mtrack" aria-hidden="true">${sum}</span>` +
+    `<span class="mval num">${money(all.total)}</span>` +
+    `<span class="mcount">${rows.length} ${rows.length === 1 ? "month" : "months"} \u00b7 ${all.count} ${all.count === 1 ? "payment" : "payments"}</span></button>`;
   box.innerHTML = rows.map((m) => {
     const [year, month] = m.key.split("-");
     const label = `${MONTH_NAMES[Number(month) - 1]} ${year}`;
@@ -136,7 +145,7 @@ function renderMonths() {
     return `<button type="button" class="mrow" data-month="${m.key}" aria-pressed="${on}" aria-label="${label}: ${money(m.total)}, ${m.count} ${m.count === 1 ? "payment" : "payments"}">` +
       `<span class="mname">${label}</span><span class="mtrack" aria-hidden="true">${slices}</span>` +
       `<span class="mval num">${money(m.total)}</span><span class="mcount">${m.count} ${m.count === 1 ? "payment" : "payments"}</span></button>`;
-  }).join("");
+  }).join("") + grandTotal;
 }
 
 const imgVersion = {}; // bumps when an image changes, so the browser shows the new one
@@ -280,6 +289,12 @@ document.getElementById("f-day").addEventListener("change", (e) => { filters.day
 document.getElementById("dash-months").addEventListener("click", (e) => {
   const row = e.target.closest("button[data-month]");
   if (!row) return;
+  if (row.dataset.month === "all") { // the grand total row: show every month
+    filters.year = filters.month = filters.day = "";
+    buildFilterOptions();
+    render();
+    return;
+  }
   const [year, month] = row.dataset.month.split("-");
   const same = filters.year === year && filters.month === month && !filters.day;
   filters.year = same ? "" : year; // clicking the chosen month again shows every month

@@ -91,7 +91,7 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 .months { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
 .months h3 { font-size: 0.9rem; font-weight: 600; margin: 0; }
 .mlist { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
-.mrow { display: grid; grid-template-columns: 8.5rem 1fr auto; grid-template-areas: "name bar value" "name bar count"; align-items: center; gap: 0 12px; width: 100%; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+.mrow { display: grid; grid-template-columns: 8.5rem 1fr 9.5rem; grid-template-areas: "name bar value" "name bar count"; align-items: center; gap: 0 12px; width: 100%; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 .mrow:hover { background: var(--bg); }
 .mrow[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .mrow .mname { grid-area: name; font-weight: 500; }
@@ -100,8 +100,11 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 .mrow .mtrack .ok { background: var(--ok-solid); } .mrow .mtrack .pend { background: var(--pend-solid); } .mrow .mtrack .warn { background: var(--warn-solid); } .mrow .mtrack .bad { background: var(--bad-solid); }
 .mrow .mval { grid-area: value; text-align: right; font-weight: 500; }
 .mrow .mcount { grid-area: count; text-align: right; font-size: 0.78rem; color: var(--muted); }
+.mrow.mall { position: sticky; bottom: 0; background: var(--bg); border-color: var(--fg); font-weight: 600; }
+.mrow.mall .mname, .mrow.mall .mval { font-weight: 600; }
+.mrow.mall[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--fg); }
 @media (max-width: 520px) {
-  .mrow { grid-template-columns: 1fr auto; grid-template-areas: "name value" "bar count"; gap: 6px 12px; }
+  .mrow { grid-template-columns: 1fr 9.5rem; grid-template-areas: "name value" "bar count"; gap: 6px 12px; }
 }
 
 .tools { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
