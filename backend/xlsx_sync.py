@@ -23,7 +23,7 @@ from openpyxl.styles import Alignment, PatternFill
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 from utils import (
-    WEEKDAYS, _day_number, _is_formula, _month_year, calendar_stride, duplicate_key, parse_amount, parse_date,
+    WEEKDAYS, _day_number, _is_formula, calendar_stride, duplicate_key, find_month_year, parse_amount, parse_date,
 )
 
 STATUS_COLORS = {"paid": "FF92D050", "delayed": "FFFFFF00", "cancelled": "FFFF7C80"}
@@ -46,13 +46,7 @@ def _is_boundary(row) -> bool:
 
 
 def _sheet_month(ws) -> Optional[Tuple[int, int]]:
-    for row in ws.iter_rows(values_only=True):
-        for cell in row:
-            if isinstance(cell, str):
-                found = _month_year(cell)
-                if found:
-                    return found
-    return None
+    return find_month_year(ws.iter_rows(values_only=True))
 
 
 def _find_blocks(grid, desc_offset: Optional[int] = 2):

@@ -208,6 +208,60 @@ def _month_year(text: str) -> Optional[Tuple[int, int]]:
     return None
 
 
+MONTH_TOKENS = {name: i + 1 for i, name in enumerate(MONTHS)}
+MONTH_TOKENS.update({name[:3]: i + 1 for i, name in enumerate(MONTHS)})
+MONTH_TOKENS["sept"] = 9
+SHORT_TITLE_RE = re.compile(r"^\s*([A-Za-z]+)\.?[\s,\-'\u2019/]*(\d{2}|\d{4})?\s*$")  # Nov 2026, NOV-26, Nov'26, Nov
+MONTH_FIRST_NUMERIC_RE = re.compile(r"^\s*(\d{1,2})\s*[/\-.]\s*(\d{4})\s*$")  # 11/2026
+YEAR_FIRST_NUMERIC_RE = re.compile(r"^\s*(\d{4})\s*[/\-.]\s*(\d{1,2})\s*$")  # 2026-11
+
+
+def _short_title(cell, alone: bool) -> Optional[Tuple[int, int]]:
+    """A month title written the short way: Nov-26, Nov'26, 11/2026, 2026-11, only 'Nov' (this year is
+    assumed), or a real date cell (Excel turns a typed 'Nov 2026' into 1 Nov 2026).
+    alone: the title is the only thing in its row. Bare months and dates need that, so that the name
+    'May' or a date column in a table is not taken for a title."""
+    if isinstance(cell, (datetime, date)):
+        return (cell.year, cell.month) if alone else None
+    if not isinstance(cell, str):
+        return None
+    match = SHORT_TITLE_RE.match(cell)
+    if match:
+        month = MONTH_TOKENS.get(match.group(1).lower())
+        if month is None:
+            return None
+        year = match.group(2)
+        if year is None:
+            return (date.today().year, month) if alone else None
+        return (2000 + int(year) if len(year) == 2 else int(year), month)
+    match = MONTH_FIRST_NUMERIC_RE.match(cell)
+    if match and 1 <= int(match.group(1)) <= 12:
+        return int(match.group(2)), int(match.group(1))
+    match = YEAR_FIRST_NUMERIC_RE.match(cell)
+    if match and 1 <= int(match.group(2)) <= 12:
+        return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def find_month_year(rows) -> Optional[Tuple[int, int]]:
+    """The (year, month) of a calendar sheet, from its title. 'November 2026' and 'Nov 2026' may stand
+    anywhere; the other short forms are looked for in the first three rows only."""
+    rows = [list(row) for row in rows]
+    for row in rows:
+        for cell in row:
+            if isinstance(cell, str):
+                found = _month_year(cell)
+                if found:
+                    return found
+    for row in rows[:3]:
+        alone = sum(1 for c in row if c is not None and str(c).strip() != "") == 1
+        for cell in row:
+            found = _short_title(cell, alone)
+            if found:
+                return found
+    return None
+
+
 def _day_number(value) -> Optional[int]:
     if isinstance(value, bool) or value is None:
         return None
@@ -252,15 +306,7 @@ def calendar_payments(rows, notes=None) -> Optional[Tuple[List[Payment], int]]:
     note text of each cell.
     """
     grid = [list(r) for r in rows]
-    year_month = None
-    for row in grid:
-        for cell in row:
-            if isinstance(cell, str):
-                year_month = _month_year(cell)
-                if year_month:
-                    break
-        if year_month:
-            break
+    year_month = find_month_year(grid)
 
     # A day-number row: every filled cell is a day number 1..31, increasing from left to right.
     day_rows = []
@@ -276,7 +322,7 @@ def calendar_payments(rows, notes=None) -> Optional[Tuple[List[Payment], int]]:
     if year_month is None:
         raise ValueError(
             "This looks like a calendar sheet but the month and year were not found. "
-            "Add a title cell such as 'November 2026' at the top."
+            "Add a title cell such as 'November 2026' (or 'Nov 2026') at the top."
         )
     year, month = year_month
     stride = calendar_stride([{d: c for c, d in days} for _, days in day_rows], year, month)
