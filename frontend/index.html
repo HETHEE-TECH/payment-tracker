@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
   <div class="wrap">
@@ -126,6 +126,23 @@
     <div id="list" class="list"></div>
   </div>
 
-  <script src="script.js?v=17"></script>
+  <dialog id="viewer" class="viewer" aria-label="Payment images">
+    <div class="vbar">
+      <div class="vcap"><b id="viewer-title"></b><span id="viewer-desc"></span></div>
+      <button type="button" class="btn small" id="viewer-close" autofocus>Close</button>
+    </div>
+    <div class="vstage" id="viewer-stage">
+      <button type="button" class="vnav vprev" id="viewer-prev" aria-label="Previous image">&#8249;</button>
+      <img id="viewer-img" alt="">
+      <button type="button" class="vnav vnext" id="viewer-next" aria-label="Next image">&#8250;</button>
+    </div>
+    <div class="vfoot">
+      <span id="viewer-count" class="hint" role="status"></span>
+      <div class="vstrip" id="viewer-strip"></div>
+      <a id="viewer-open" class="hint" target="_blank" rel="noopener">Open full size</a>
+    </div>
+  </dialog>
+
+  <script src="script.js?v=18"></script>
 </body>
 </html>

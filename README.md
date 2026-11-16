@@ -104,7 +104,9 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   or just `Nov` (the current year is assumed; check the dates in the preview before importing).
 - A payment can have several images (up to 10, each max 3 MB). Choose one or many files in the file box, and
   each shows as a small thumbnail with an x button that removes just that image. The description is still
-  required before the first image is added.
+  required before the first image is added. Click a thumbnail to open the viewer: the big image, previous and
+  next buttons (or the left and right arrow keys, or a swipe on a phone), a strip of all the payment's
+  images, Esc or Close to leave. Ctrl-click a thumbnail to open that image in a new tab.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
 - Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.

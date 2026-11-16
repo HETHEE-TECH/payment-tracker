@@ -185,7 +185,7 @@ function renderList(items) {
         `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" multiple data-img="${i.id}"></label>`;
       const thumbs = images.map((imageId, n) => {
         const url = `${API}/images/${imageId}`;
-        return `<span class="thumbwrap"><a class="thumb" href="${url}" target="_blank" rel="noopener" title="Open image ${n + 1}">` +
+        return `<span class="thumbwrap"><a class="thumb" href="${url}" target="_blank" rel="noopener" data-view="${i.id}" data-n="${n}" title="View image ${n + 1} of ${images.length}">` +
           `<img src="${url}" alt="Image ${n + 1} for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
           `<button type="button" class="thumbx" data-act="img-del" data-id="${imageId}" aria-label="Remove image ${n + 1} of ${esc(i.name)}">\u00d7</button></span>`;
       }).join("");
@@ -494,6 +494,65 @@ document.getElementById("filelist").addEventListener("click", async (e) => {
   if (!window.confirm("Delete this stored file? The payments already imported from it stay in the list.")) return;
   try { await api("/files/" + b.dataset.fileDel, { method: "DELETE" }); loadFiles(); } catch (err) { showError(err.message); }
 });
+
+// ---------- image viewer: all images of a payment, one after the other ----------
+const viewer = document.getElementById("viewer");
+const view = { ids: [], at: 0, name: "", desc: "" };
+
+function showImage(at) {
+  const total = view.ids.length;
+  if (!total) return;
+  view.at = (at + total) % total; // after the last image comes the first
+  const url = `${API}/images/${view.ids[view.at]}`;
+  const img = document.getElementById("viewer-img");
+  img.src = url;
+  img.alt = `Image ${view.at + 1} of ${total} for ${view.name}`;
+  document.getElementById("viewer-count").textContent = `Image ${view.at + 1} of ${total}`;
+  document.getElementById("viewer-open").href = url;
+  document.getElementById("viewer-prev").hidden = document.getElementById("viewer-next").hidden = total < 2;
+  document.getElementById("viewer-strip").innerHTML = total < 2 ? "" : view.ids.map((imageId, n) =>
+    `<button type="button" class="vthumb" data-n="${n}" aria-label="Show image ${n + 1}" aria-current="${n === view.at}">` +
+    `<img src="${API}/images/${imageId}" alt="" loading="lazy"></button>`).join("");
+}
+
+function openViewer(paymentId, at) {
+  const item = allItems.find((x) => String(x.id) === String(paymentId));
+  if (!item || !(item.images || []).length) return;
+  view.ids = item.images;
+  view.name = item.name;
+  document.getElementById("viewer-title").textContent = `${item.name} \u00b7 ${money(item.amount)}`;
+  document.getElementById("viewer-desc").textContent = item.description || "";
+  showImage(at);
+  if (!viewer.open) viewer.showModal();
+}
+
+document.getElementById("list").addEventListener("click", (e) => {
+  const link = e.target.closest("a.thumb[data-view]");
+  if (!link || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return; // those open the image in a new tab as before
+  e.preventDefault();
+  openViewer(link.dataset.view, Number(link.dataset.n));
+});
+document.getElementById("viewer-prev").addEventListener("click", () => showImage(view.at - 1));
+document.getElementById("viewer-next").addEventListener("click", () => showImage(view.at + 1));
+document.getElementById("viewer-close").addEventListener("click", () => viewer.close());
+document.getElementById("viewer-strip").addEventListener("click", (e) => {
+  const thumb = e.target.closest("button[data-n]");
+  if (thumb) showImage(Number(thumb.dataset.n));
+});
+viewer.addEventListener("click", (e) => { if (e.target === viewer) viewer.close(); }); // a click outside the box
+viewer.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowLeft") { e.preventDefault(); showImage(view.at - 1); }
+  if (e.key === "ArrowRight") { e.preventDefault(); showImage(view.at + 1); }
+});
+let swipeFrom = null; // a swipe on a phone moves to the next or previous image
+const stage = document.getElementById("viewer-stage");
+stage.addEventListener("touchstart", (e) => { swipeFrom = e.touches[0].clientX; }, { passive: true });
+stage.addEventListener("touchend", (e) => {
+  if (swipeFrom === null) return;
+  const moved = e.changedTouches[0].clientX - swipeFrom;
+  swipeFrom = null;
+  if (Math.abs(moved) > 50) showImage(view.at + (moved < 0 ? 1 : -1));
+}, { passive: true });
 
 // ---------- payment images ----------
 // Big photos are shrunk in the browser first (max 1400 px, JPEG), so uploads stay small and fast.
