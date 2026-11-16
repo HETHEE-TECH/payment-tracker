@@ -21,6 +21,7 @@ class PaymentOut(BaseModel):
     new_date: Optional[str] = None
     description: Optional[str] = None
     has_image: bool = False
+    images: List[int] = []  # ids of the payment's images, oldest first
     files_updated: List[str] = []  # stored Excel files changed by this action
     sync_error: Optional[str] = None
 

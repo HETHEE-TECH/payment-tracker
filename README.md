@@ -102,6 +102,9 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - The month title of a calendar sheet can be written in any of these ways: `November 2026`, `Nov 2026`,
   `Nov-26`, `Nov'26`, `11/2026`, `2026-11`, a real date cell (Excel turns a typed `Nov 2026` into 1 Nov 2026),
   or just `Nov` (the current year is assumed; check the dates in the preview before importing).
+- A payment can have several images (up to 10, each max 3 MB). Choose one or many files in the file box, and
+  each shows as a small thumbnail with an x button that removes just that image. The description is still
+  required before the first image is added.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
 - Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.
@@ -133,4 +136,6 @@ CORS is already enabled in the backend.
 | POST | `/api/files` | Keep a copy of an imported CSV / Excel / PDF (same file is stored once) |
 | GET | `/api/files` | List stored files |
 | GET / DELETE | `/api/files/{id}` | Download / delete a stored file |
-| POST / GET / DELETE | `/api/payments/{id}/image` | Upload / view / remove the image of a payment (JPG, PNG, WEBP, GIF, max 3 MB) |
+| POST | `/api/payments/{id}/image` | Add one more image to a payment (JPG, PNG, WEBP, GIF, max 3 MB, up to 10 per payment) |
+| GET / DELETE | `/api/images/{image_id}` | View / remove one image |
+| GET / DELETE | `/api/payments/{id}/image` | View the first image / remove all images of a payment |

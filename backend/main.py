@@ -32,6 +32,7 @@ from xlsx_sync import apply_payment, remove_payment
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
+MAX_IMAGES_PER_PAYMENT = 10
 FILE_TYPES = {
     ".csv": "text/csv",
     ".txt": "text/plain",
@@ -211,7 +212,13 @@ def list_payments(month: Optional[str] = None, db: sqlite3.Connection = Depends(
         sql += " WHERE p.date LIKE ?"
         params = (month + "-%",)
     sql += " ORDER BY p.date, p.name"
-    return [dict(row) for row in db.execute(sql, params).fetchall()]
+    payments = [dict(row) for row in db.execute(sql, params).fetchall()]
+    image_ids: dict = {}
+    for row in db.execute("SELECT id, payment_id FROM payment_images ORDER BY id").fetchall():
+        image_ids.setdefault(row["payment_id"], []).append(row["id"])
+    for payment in payments:
+        payment["images"] = image_ids.get(payment["id"], [])
+    return payments
 
 
 @app.post("/api/payments", response_model=PaymentOut, status_code=201)
@@ -443,8 +450,13 @@ def upload_image(payment_id: int, file: UploadFile = File(...), db: sqlite3.Conn
     content_type = sniff_image(data)
     if content_type is None:
         raise HTTPException(status_code=422, detail="Upload a JPG, PNG, WEBP or GIF image")
-    db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
-    db.execute(
+    have = db.execute("SELECT COUNT(*) AS n FROM payment_images WHERE payment_id = ?", (payment_id,)).fetchone()["n"]
+    if have >= MAX_IMAGES_PER_PAYMENT:
+        raise HTTPException(
+            status_code=422,
+            detail=f"A payment can have up to {MAX_IMAGES_PER_PAYMENT} images. Remove one to add another.",
+        )
+    db.execute(  # adds one more image; the payment's other images stay
         "INSERT INTO payment_images (payment_id, content_type, data) VALUES (?, ?, ?)",
         (payment_id, content_type, data),
     )
@@ -452,13 +464,7 @@ def upload_image(payment_id: int, file: UploadFile = File(...), db: sqlite3.Conn
     return {"ok": True}
 
 
-@app.get("/api/payments/{payment_id}/image")
-def get_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
-    row = db.execute(
-        "SELECT content_type, data FROM payment_images WHERE payment_id = ?", (payment_id,)
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="No image for this payment")
+def image_response(row) -> Response:
     return Response(
         content=bytes(row["data"]),
         media_type=row["content_type"],
@@ -466,8 +472,36 @@ def get_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
     )
 
 
+@app.get("/api/images/{image_id}")
+def get_image_by_id(image_id: int, db: sqlite3.Connection = Depends(get_db)):
+    row = db.execute("SELECT content_type, data FROM payment_images WHERE id = ?", (image_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return image_response(row)
+
+
+@app.delete("/api/images/{image_id}", status_code=204)
+def delete_image_by_id(image_id: int, db: sqlite3.Connection = Depends(get_db)):
+    cur = db.execute("DELETE FROM payment_images WHERE id = ?", (image_id,))
+    db.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+
+@app.get("/api/payments/{payment_id}/image")
+def get_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
+    """The payment's first image (older link; the page uses /api/images/{id})."""
+    row = db.execute(
+        "SELECT content_type, data FROM payment_images WHERE payment_id = ? ORDER BY id LIMIT 1", (payment_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No image for this payment")
+    return image_response(row)
+
+
 @app.delete("/api/payments/{payment_id}/image", status_code=204)
-def delete_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
+def delete_images(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
+    """Removes all images of a payment."""
     db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
     db.commit()
 

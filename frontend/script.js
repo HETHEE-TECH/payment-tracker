@@ -148,7 +148,7 @@ function renderMonths() {
   }).join("") + grandTotal;
 }
 
-const imgVersion = {}; // bumps when an image changes, so the browser shows the new one
+const MAX_IMAGES = 10; // images per payment (the server enforces the same limit)
 
 function renderList(items) {
   const host = document.getElementById("list");
@@ -180,17 +180,21 @@ function renderList(items) {
         if (i.status === "delayed") acts += btn("paid", "Paid now", "ok");
       }
       acts += btn("remove", "Remove", "");
-      const imgUrl = `${API}/payments/${i.id}/image?v=${imgVersion[i.id] || 0}`;
+      const images = i.images || [];
       const picker = (label) =>
-        `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" data-img="${i.id}"></label>`;
+        `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" multiple data-img="${i.id}"></label>`;
+      const thumbs = images.map((imageId, n) => {
+        const url = `${API}/images/${imageId}`;
+        return `<span class="thumbwrap"><a class="thumb" href="${url}" target="_blank" rel="noopener" title="Open image ${n + 1}">` +
+          `<img src="${url}" alt="Image ${n + 1} for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
+          `<button type="button" class="thumbx" data-act="img-del" data-id="${imageId}" aria-label="Remove image ${n + 1} of ${esc(i.name)}">\u00d7</button></span>`;
+      }).join("");
       const desc = i.description || "";
       acts += `<span class="descctl"><input class="descinput${desc ? "" : " need"}" type="text" maxlength="500" ` +
         `placeholder="Description (required)" autocomplete="off" value="${esc(desc)}" data-desc="${i.id}" aria-label="Description for ${esc(i.name)}" required>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button></span>`;
-      acts += `<span class="imgctl">` + (i.has_image
-        ? `<a class="thumb" href="${imgUrl}" target="_blank" rel="noopener" title="Open image"><img src="${imgUrl}" alt="Image for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
-          picker("Change image") + btn("img-remove", "Remove image", "")
-        : picker("Upload image")) + `</span>`;
+      acts += `<span class="imgctl">${thumbs}` +
+        (images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")) + `</span>`;
       return `<div class="item ${STATUS_CLASS[i.status]}${isToday ? " todayrow" : ""}">` +
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
@@ -320,7 +324,7 @@ document.getElementById("list").addEventListener("click", async (e) => {
       await saveDescription(id, document.querySelector(`input[data-desc="${id}"]`), true);
       return; // the list is not redrawn, so what you typed in the other rows stays
     } else if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
-    else if (act === "img-remove") await api(`/payments/${id}/image`, { method: "DELETE" });
+    else if (act === "img-del") await api(`/images/${id}`, { method: "DELETE" }); // here id is the image's id
     else reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) }));
     refresh();
   } catch (err) {
@@ -515,6 +519,7 @@ document.getElementById("list").addEventListener("change", async (e) => {
   const input = e.target.closest("input[data-img]");
   if (!input || !input.files || !input.files[0]) return;
   const id = input.dataset.img;
+  let problem = "";
   try {
     showError("");
     const box = document.querySelector(`input[data-desc="${id}"]`);
@@ -523,18 +528,25 @@ document.getElementById("list").addEventListener("change", async (e) => {
     if (text !== (box.defaultValue || "").trim()) {
       reportSync(await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) }));
     }
-    const blob = await shrinkImage(input.files[0]);
-    const form = new FormData();
-    form.append("file", blob, "payment-image");
-    const res = await fetch(`${API}/payments/${id}/image`, { method: "POST", body: form });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join(", ") : data.detail || res.statusText);
-    imgVersion[id] = Date.now();
-    refresh();
+    // Several images can be chosen at once; they are uploaded one after the other.
+    const item = allItems.find((x) => String(x.id) === String(id));
+    const room = Math.max(0, MAX_IMAGES - ((item && item.images) || []).length);
+    const files = [...input.files];
+    if (files.length > room) problem = `A payment can have up to ${MAX_IMAGES} images, so only the first ${room} were added.`;
+    for (const file of files.slice(0, room)) {
+      const blob = await shrinkImage(file);
+      const form = new FormData();
+      form.append("file", blob, "payment-image");
+      const res = await fetch(`${API}/payments/${id}/image`, { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join(", ") : data.detail || res.statusText);
+    }
   } catch (err) {
-    showError(err.message);
-    input.value = "";
+    problem = err.message;
   }
+  input.value = "";
+  await refresh(); // shows the images that did get uploaded
+  if (problem) showError(problem);
 });
 
 document.getElementById("a-date").value = today;

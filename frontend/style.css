@@ -190,6 +190,10 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 .descinput.need { border-color: var(--bad-solid); }
 .descinput:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .imgctl { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.thumbwrap { position: relative; display: inline-block; line-height: 0; }
+.thumbx { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.thumbx:hover { border-color: var(--bad-solid); color: var(--bad-solid); }
+.thumbx:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .thumb { display: block; line-height: 0; }
 .thumb img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
 .filelist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
