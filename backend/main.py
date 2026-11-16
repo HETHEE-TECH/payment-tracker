@@ -203,10 +203,7 @@ def check_month(month: Optional[str]) -> None:
 @app.get("/api/payments", response_model=List[PaymentOut])
 def list_payments(month: Optional[str] = None, db: sqlite3.Connection = Depends(get_db)):
     check_month(month)
-    sql = (
-        "SELECT p.*, (SELECT COUNT(*) FROM payment_images i WHERE i.payment_id = p.id) AS has_image "
-        "FROM payments p"
-    )
+    sql = "SELECT p.* FROM payments p"
     params: tuple = ()
     if month:
         sql += " WHERE p.date LIKE ?"
@@ -218,6 +215,7 @@ def list_payments(month: Optional[str] = None, db: sqlite3.Connection = Depends(
         image_ids.setdefault(row["payment_id"], []).append(row["id"])
     for payment in payments:
         payment["images"] = image_ids.get(payment["id"], [])
+        payment["has_image"] = bool(payment["images"])  # a true/false, not the number of images
     return payments
 
 
