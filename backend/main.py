@@ -530,7 +530,7 @@ def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
     check_month(month)
     result = {
         status: {"count": 0, "amount": 0.0}
-        for status in ("pending", "paid", "delayed", "cancelled")
+        for status in ("pending", "paid", "delayed", "cancelled", "need_to_come")
     }
     rows = db.execute(
         "SELECT status, COUNT(*) AS c, SUM(amount) AS s FROM payments WHERE date LIKE ? GROUP BY status",

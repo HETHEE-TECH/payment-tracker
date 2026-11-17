@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-Status = Literal["pending", "paid", "delayed", "cancelled"]
+Status = Literal["pending", "paid", "delayed", "cancelled", "need_to_come"]
 
 
 class PaymentCreate(BaseModel):

@@ -3,7 +3,7 @@ Keeps a stored calendar-style Excel file up to date.
 
 When you add a payment by hand, or change its status, the payment is written into the stored
 Excel file for its month (under the right day), and its two cells get the status colour:
-paid = green, delayed = yellow, cancelled = red. Pending has no colour.
+paid = green, delayed = yellow, cancelled = red, need to come = purple. Pending has no colour.
 
 The file's own layout is kept: only the needed cells are written. Every day has three columns:
 name, amount and description. A sheet that still has two columns per day gets the third column
@@ -26,7 +26,7 @@ from utils import (
     WEEKDAYS, _day_number, _is_formula, calendar_stride, duplicate_key, find_month_year, parse_amount, parse_date,
 )
 
-STATUS_COLORS = {"paid": "FF92D050", "delayed": "FFFFFF00", "cancelled": "FFFF7C80"}
+STATUS_COLORS = {"paid": "FF92D050", "delayed": "FFFFFF00", "cancelled": "FFFF7C80", "need_to_come": "FFB4A7D6"}
 WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
 

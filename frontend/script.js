@@ -2,8 +2,8 @@
 // change this to "http://127.0.0.1:8000/api".
 const API = "/api";
 
-const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled" };
-const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad" };
+const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Need to come" };
+const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad", need_to_come: "come" };
 
 const pad = (n) => String(n).padStart(2, "0");
 const today = (() => {
@@ -69,6 +69,7 @@ const DASH_STATUSES = [
   ["pending", "Pending", "pend", "--pend-solid"],
   ["delayed", "Delayed", "warn", "--warn-solid"],
   ["cancelled", "Cancelled", "bad", "--bad-solid"],
+  ["need_to_come", "Need to come", "come", "--come-solid"],
 ];
 
 // What the dashboard is counting, from the filters that are set (for example "November 2026 · Paid").
@@ -77,7 +78,7 @@ function scopeLabel() {
   const date = [filters.day ? Number(filters.day) : "", filters.month ? MONTH_NAMES[Number(filters.month) - 1] : "", filters.year]
     .filter(Boolean).join(" ");
   if (date) parts.push(date);
-  if (filters.status) parts.push(filters.status.charAt(0).toUpperCase() + filters.status.slice(1));
+  if (filters.status) parts.push(STATUS_LABEL[filters.status] || filters.status);
   if (filters.q.trim()) parts.push(`\u201c${filters.q.trim()}\u201d`);
   return parts.length ? parts.join(" \u00b7 ") : "All payments";
 }
@@ -120,7 +121,7 @@ function renderMonths() {
   allItems.forEach((i) => {
     if ((q && !i.name.toLowerCase().includes(q)) || (filters.status && i.status !== filters.status)) return;
     const key = i.date.slice(0, 7);
-    if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
+    if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0, need_to_come: 0 });
     const m = months.get(key);
     m.total += i.amount; m.count++; m[i.status] += i.amount;
   });
@@ -128,7 +129,7 @@ function renderMonths() {
   const box = document.getElementById("dash-months");
   if (!rows.length) { box.innerHTML = `<div class="empty">No payments yet.</div>`; return; }
   const biggest = Math.max(...rows.map((m) => m.total)) || 1;
-  const all = { total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 };
+  const all = { total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0, need_to_come: 0 };
   rows.forEach((m) => { for (const k in all) all[k] += m[k]; });
   const none = !filters.year && !filters.month && !filters.day;
   const sum = DASH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${all.total ? (all[key] / all.total) * 100 : 0}%"></span>`).join("");
@@ -174,10 +175,10 @@ function renderList(items) {
       const btn = (act, label, cls) => `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button">${label}</button>`;
       let acts = "";
       if (i.status === "pending") {
-        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad");
+        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Need to come", "come");
       } else {
         acts += btn("pending", "Undo", "");
-        if (i.status === "delayed") acts += btn("paid", "Paid now", "ok");
+        if (i.status === "delayed" || i.status === "need_to_come") acts += btn("paid", "Paid now", "ok");
       }
       acts += btn("remove", "Remove", "");
       const images = i.images || [];
@@ -208,7 +209,7 @@ function renderList(items) {
 
 function summarize(items) {
   const blank = () => ({ count: 0, amount: 0 });
-  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), total: blank(), to_pay: blank() };
+  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), need_to_come: blank(), total: blank(), to_pay: blank() };
   items.forEach((i) => {
     s[i.status].count++; s[i.status].amount += i.amount;
     s.total.count++; s.total.amount += i.amount;

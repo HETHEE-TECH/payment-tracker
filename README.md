@@ -6,6 +6,7 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
 - **Green** (Paid): paid on its date.
 - **Yellow** (Delayed): moved to the next day. The list shows "Pay on <date>".
 - **Red** (Cancelled).
+- **Purple** (Need to come): a payment that still has to come in. It is not counted in "Still to pay" on the dashboard, but it is in the total.
 
 ## Structure
 
@@ -90,7 +91,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - A payment you add by hand is written into the stored Excel of its month, under its day. A new day
   gets its own column, a new week gets a new block at the bottom, and when a day has no free row a
   row is inserted above the SUM row and the SUM formulas are extended.
-- Paid, Delayed and Cancelled colour the payment's name, amount and description cells green, yellow and red. Undo removes the colour.
+- Paid, Delayed, Cancelled and Need to come colour the payment's name, amount and description cells green, yellow, red and purple. Undo removes the colour.
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
 - Every payment has a Description box next to the image buttons. It is required: the image cannot be
   uploaded until the description is written. Whatever is left in the box is saved (also when you leave the box
@@ -134,7 +135,7 @@ CORS is already enabled in the backend.
 | --- | --- | --- |
 | GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
 | POST | `/api/payments` | Add one payment `{name, amount, date}`. Also writes it into the stored Excel file of its month |
-| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed` or `cancelled`. Also colours the payment in the stored Excel file |
+| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed`, `cancelled` or `need_to_come`. Also colours the payment in the stored Excel file |
 | PUT | `/api/payments/{id}/description` | Save the required description (also written into the stored Excel files) |
 | DELETE | `/api/payments/{id}` | Remove a payment. Also removes it from the stored Excel files |
 | POST | `/api/parse-file` | Upload .csv / .tsv / .txt / .xlsx / .xlsm / .xls / .ods / .docx / .pdf (form field `file`), returns the rows found as text. Saves nothing |
