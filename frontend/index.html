@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
   <div class="wrap">
@@ -50,10 +50,10 @@
       <details id="d-import">
         <summary>Import payments</summary>
         <div class="body">
-          <p class="hint">Choose a CSV, Excel (.xlsx) or PDF file, or paste lines: name, amount, date, description. The description is optional: write it as a fourth item, or as a Description column in the file (in a calendar sheet, the third column of each day is read as the description). Dates can be 2026-11-05 or 05-11-2026. Write amounts without commas (1500) or put them in quotes ("1,500"). A header line is skipped. After choosing a file, check the rows that appear in the box before you import. The file itself is kept under Stored files.</p>
+          <p class="hint">Choose a file (CSV, TSV, TXT, Excel .xlsx / .xlsm / .xls, OpenDocument .ods, Word .docx or PDF), or paste lines: name, amount, date, description. The description is optional: write it as a fourth item, or as a Description column in the file (in a calendar sheet, the third column of each day is read as the description). Dates can be 2026-11-05 or 05-11-2026. Write amounts without commas (1500) or put them in quotes ("1,500"). A header line is skipped. After choosing a file, check the rows that appear in the box before you import. The file itself is kept under Stored files.</p>
           <textarea id="paste" aria-label="Payments to import"></textarea>
           <div class="row-actions">
-            <input type="file" id="file" accept=".csv,.txt,.xlsx,.pdf" aria-label="Choose a CSV, Excel or PDF file">
+            <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,.docx,.pdf" aria-label="Choose a CSV, TSV, TXT, Excel, ODS, Word or PDF file">
           </div>
           <div class="row-actions">
             <button class="btn primary" id="imp-add" type="button">Add to list</button>
@@ -143,6 +143,6 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=18"></script>
+  <script src="script.js?v=19"></script>
 </body>
 </html>

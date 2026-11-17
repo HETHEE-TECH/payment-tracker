@@ -1,6 +1,6 @@
 # Payment Tracker
 
-Monthly payment tracker. Import `name, amount, date` from a **CSV, Excel (.xlsx), PDF** or text file
+Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Excel (.xlsx, .xlsm, .xls), OpenDocument (.ods), Word (.docx) or PDF** file
 (or paste the lines), then mark each payment:
 
 - **Green** (Paid): paid on its date.
@@ -44,9 +44,14 @@ The database file `backend/payments.db` is created on first start.
 Choosing a file does not save anything. The backend reads it and puts the rows it found in the
 import box, so you can check and fix them. Then click **Add to list** or **Replace whole list**.
 
-- **CSV / TXT**: `name, amount, date` per line.
+- **CSV / TSV / TXT**: `name, amount, date` per line. Commas, tabs, semicolons and pipes all work as the separator,
+  and UTF-8, UTF-16 (Excel's Unicode Text) and Windows-1252 files are read.
 - **Excel (.xlsx)**: every sheet is read. Column order does not matter, the app finds the date,
-  amount and name in each row. Old `.xls` files: use Save As `.xlsx` first.
+  amount and name in each row. `.xlsm` (macro-enabled) is read the same way, the macros are ignored.
+- **Old Excel (.xls)**: read with the `xlrd` package (it is in `backend/requirements.txt`). An .xls holds values only,
+  so in a calendar sheet the SUM row is recognised as a row of numbers without names.
+- **OpenDocument (.ods)**, from LibreOffice or a Google Sheets download: tables and calendar sheets, like .xlsx.
+- **Word (.docx)**: tables are read first, otherwise every line of text (like a PDF).
 - **PDF**: tables are read first, otherwise each text line is read. Always check the rows after
   importing a PDF, because PDF layouts vary. Scanned PDFs (pictures of text) are not supported.
 
@@ -110,7 +115,8 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
 - Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.
-- CSV and PDF files are kept as they were imported. They cannot hold colours.
+- Only .xlsx files are updated by the app. Files of other types (CSV, .xls, .xlsm, .ods, Word, PDF) are kept as
+  they were imported: the app cannot write into them.
 
 ## Running the frontend separately
 
@@ -131,11 +137,11 @@ CORS is already enabled in the backend.
 | PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed` or `cancelled`. Also colours the payment in the stored Excel file |
 | PUT | `/api/payments/{id}/description` | Save the required description (also written into the stored Excel files) |
 | DELETE | `/api/payments/{id}` | Remove a payment. Also removes it from the stored Excel files |
-| POST | `/api/parse-file` | Upload .csv / .txt / .xlsx / .pdf (form field `file`), returns the rows found as text. Saves nothing |
+| POST | `/api/parse-file` | Upload .csv / .tsv / .txt / .xlsx / .xlsm / .xls / .ods / .docx / .pdf (form field `file`), returns the rows found as text. Saves nothing |
 | POST | `/api/payments/import` | Import text `{text, replace}` |
 | GET | `/api/months` | Months that have payments |
 | GET | `/api/summary?month=2026-11` | Totals per status |
-| POST | `/api/files` | Keep a copy of an imported CSV / Excel / PDF (same file is stored once) |
+| POST | `/api/files` | Keep a copy of an imported file of any supported type (same file is stored once) |
 | GET | `/api/files` | List stored files |
 | GET / DELETE | `/api/files/{id}` | Download / delete a stored file |
 | POST | `/api/payments/{id}/image` | Add one more image to a payment (JPG, PNG, WEBP, GIF, max 3 MB, up to 10 per payment) |

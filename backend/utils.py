@@ -168,20 +168,40 @@ def rows_to_payments(rows) -> Tuple[List[Payment], int]:
 # ---------- CSV / text ----------
 
 def decode_text(data: bytes) -> str:
+    """Text from a .csv/.txt file: UTF-8 (with or without BOM), UTF-16 (Excel's 'Unicode Text') or Windows-1252."""
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16")
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return data.decode("latin-1")
+        pass
+    if b"\x00" in data[:200]:  # UTF-16 without a BOM
+        try:
+            return data.decode("utf-16-le")
+        except UnicodeDecodeError:
+            pass
+    return data.decode("cp1252", errors="replace")
+
+
+def _split_line(line: str) -> list:
+    """One line of a text file as fields. The separator can be a tab, a semicolon, a pipe or a comma:
+    the one that gives the most fields wins (quotes are respected)."""
+    best = None
+    for delimiter in ("\t", ";", "|", ","):
+        if delimiter not in line:
+            continue
+        try:
+            fields = next(csv.reader(io.StringIO(line), delimiter=delimiter))
+        except Exception:
+            continue
+        if best is None or len(fields) > len(best):
+            best = fields
+    return best if best is not None else [line]
 
 
 def parse_import_text(text: str) -> Tuple[List[Payment], int]:
-    """Lines of: name, amount, date (comma or tab separated). A header line is ignored."""
-    rows = []
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        delimiter = "\t" if "\t" in line else ","
-        rows.append(next(csv.reader(io.StringIO(line), delimiter=delimiter)))
+    """Lines of: name, amount, date (separated by commas, tabs, semicolons or pipes). A header line is ignored."""
+    rows = [_split_line(line) for line in text.splitlines() if line.strip()]
     return rows_to_payments(rows)
 
 
@@ -440,6 +460,20 @@ def _parse_pdf_line(line: str) -> Optional[Payment]:
     return name, amount, day, ""
 
 
+def _payments_from_tables_and_lines(table_rows, text_lines) -> Tuple[List[Payment], int]:
+    """Table rows first; when they give no payments, every text line is read on its own."""
+    good, skipped = rows_to_payments(table_rows) if table_rows else ([], 0)
+    if not good:
+        good, skipped = [], 0
+        for line in text_lines:
+            parsed = _parse_pdf_line(line)
+            if parsed:
+                good.append(parsed)
+            elif DATE_RE.search(line):
+                skipped += 1
+    return good, skipped
+
+
 def parse_pdf(data: bytes) -> Tuple[List[Payment], int]:
     try:
         import pdfplumber
@@ -461,13 +495,168 @@ def parse_pdf(data: bytes) -> Tuple[List[Payment], int]:
             "Export it as CSV or Excel, or type the list."
         )
 
-    good, skipped = rows_to_payments(table_rows) if table_rows else ([], 0)
-    if not good:  # no table found: read line by line
-        good, skipped = [], 0
-        for line in text_lines:
-            parsed = _parse_pdf_line(line)
-            if parsed:
-                good.append(parsed)
-            elif DATE_RE.search(line):
-                skipped += 1
+    return _payments_from_tables_and_lines(table_rows, text_lines)
+
+# ---------- other spreadsheet and document formats: .xls, .ods, .docx ----------
+
+def _payments_from_sheets(sheets) -> Tuple[List[Payment], int]:
+    """sheets: (values, formulas) grids per sheet. A calendar sheet is read from the formulas grid (a SUM
+    row is recognised by being a formula); any other sheet is read as a table from the values grid."""
+    good: List[Payment] = []
+    skipped = 0
+    for values, formulas in sheets:
+        calendar = calendar_payments(formulas)
+        sheet_good, sheet_skipped = calendar if calendar is not None else rows_to_payments(values)
+        good += sheet_good
+        skipped += sheet_skipped
     return good, skipped
+
+
+def _mark_total_rows(grid):
+    """An .xls file only holds values, so a SUM row is a row of plain numbers. A row of numbers only, right
+    under a row with text, is marked as a formula row, the way a SUM row is in an .xlsx file."""
+    marked, previous_text = [], False
+    for row in grid:
+        filled = [v for v in row if v is not None and str(v).strip() != ""]
+        numbers_only = bool(filled) and all(_is_number(v) for v in filled)
+        days = [_day_number(v) for v in filled] if numbers_only else []
+        is_day_row = numbers_only and all(d is not None for d in days) and days == sorted(set(days))
+        if numbers_only and previous_text and not is_day_row:
+            marked.append(["=SUM" if _is_number(v) else v for v in row])
+        else:
+            marked.append(list(row))
+        if filled:
+            previous_text = any(isinstance(v, str) for v in filled)
+    return marked
+
+
+def parse_xls(data: bytes) -> Tuple[List[Payment], int]:
+    """The old Excel format (.xls), read with the xlrd package."""
+    try:
+        import xlrd
+    except ImportError:
+        raise ValueError("Old .xls files need the xlrd package (pip install xlrd). Or save the file as .xlsx.")
+    try:
+        book = xlrd.open_workbook(file_contents=data)
+    except Exception:
+        raise ValueError("Could not read this .xls file. In Excel, use Save As and choose .xlsx.")
+    sheets = []
+    for sheet in book.sheets():
+        grid = []
+        for r in range(sheet.nrows):
+            row = []
+            for c in range(sheet.ncols):
+                cell = sheet.cell(r, c)
+                if cell.ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        value = xlrd.xldate_as_datetime(cell.value, book.datemode)
+                    except Exception:
+                        value = None
+                elif cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK, xlrd.XL_CELL_ERROR):
+                    value = None
+                elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
+                    value = bool(cell.value)
+                else:
+                    value = cell.value
+                row.append(value)
+            grid.append(row)
+        sheets.append((grid, _mark_total_rows(grid)))
+    return _payments_from_sheets(sheets)
+
+
+_ODF = {
+    "office": "urn:oasis:names:tc:opendocument:xmlns:office:1.0",
+    "table": "urn:oasis:names:tc:opendocument:xmlns:table:1.0",
+    "text": "urn:oasis:names:tc:opendocument:xmlns:text:1.0",
+}
+
+
+def _odf(prefix: str, name: str) -> str:
+    return "{%s}%s" % (_ODF[prefix], name)
+
+
+def _ods_value(cell):
+    kind = cell.get(_odf("office", "value-type"))
+    if kind in ("float", "percentage", "currency"):
+        try:
+            number = float(cell.get(_odf("office", "value")))
+        except (TypeError, ValueError):
+            return None
+        return int(number) if number.is_integer() else number
+    if kind == "date":
+        try:
+            return datetime.fromisoformat(cell.get(_odf("office", "date-value")) or "")
+        except ValueError:
+            return None
+    if kind == "boolean":
+        return cell.get(_odf("office", "boolean-value")) == "true"
+    text = "\n".join("".join(p.itertext()) for p in cell.findall(_odf("text", "p"))).strip()
+    return text or None
+
+
+def parse_ods(data: bytes) -> Tuple[List[Payment], int]:
+    """OpenDocument spreadsheets (.ods: LibreOffice, Google Sheets download), read with the standard library."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(zipfile.ZipFile(io.BytesIO(data)).read("content.xml"))
+    except Exception:
+        raise ValueError("Could not read this .ods file.")
+    sheets = []
+    for table in root.iter(_odf("table", "table")):
+        values, formulas = [], []
+        for row in table.iter(_odf("table", "table-row")):
+            row_values, row_formulas = [], []
+            for cell in row:
+                if cell.tag not in (_odf("table", "table-cell"), _odf("table", "covered-table-cell")):
+                    continue
+                value = _ods_value(cell) if cell.tag == _odf("table", "table-cell") else None
+                formula = cell.get(_odf("table", "formula"))
+                shown = "=" + formula.split("=", 1)[-1] if formula else value
+                repeat = int(cell.get(_odf("table", "number-columns-repeated"), "1") or 1)
+                repeat = min(repeat, 100 if (value is not None or formula) else 64)
+                row_values.extend([value] * repeat)
+                row_formulas.extend([shown] * repeat)
+            while row_values and row_values[-1] is None and row_formulas[-1] is None:  # trailing empty cells
+                row_values.pop()
+                row_formulas.pop()
+            repeat_rows = int(row.get(_odf("table", "number-rows-repeated"), "1") or 1)
+            repeat_rows = min(repeat_rows, 100 if row_values else 2)
+            for _ in range(repeat_rows):
+                values.append(list(row_values))
+                formulas.append(list(row_formulas))
+            if len(values) > 20000:
+                break
+        sheets.append((values, formulas))
+    return _payments_from_sheets(sheets)
+
+
+def parse_docx(data: bytes) -> Tuple[List[Payment], int]:
+    """Word documents (.docx): the tables are read first, otherwise every line of text."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    try:
+        body = ET.fromstring(zipfile.ZipFile(io.BytesIO(data)).read("word/document.xml")).find(w + "body")
+    except Exception:
+        raise ValueError("Could not read this Word file. Make sure it is a .docx file.")
+
+    def text_of(element) -> str:
+        parts = []
+        for node in element.iter():
+            if node.tag == w + "t":
+                parts.append(node.text or "")
+            elif node.tag == w + "tab":
+                parts.append("\t")
+        return "".join(parts)
+
+    table_rows, lines = [], []
+    for child in body:
+        if child.tag == w + "tbl":
+            for tr in child.iter(w + "tr"):
+                table_rows.append([" ".join(text_of(p) for p in tc.iter(w + "p")).strip() for tc in tr.findall(w + "tc")])
+        elif child.tag == w + "p":
+            lines.append(text_of(child))
+    if not table_rows and not any(line.strip() for line in lines):
+        raise ValueError("No text found in this Word file.")
+    return _payments_from_tables_and_lines(table_rows, lines)

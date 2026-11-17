@@ -438,7 +438,7 @@ document.getElementById("del-all").addEventListener("click", async () => {
 document.getElementById("imp-add").addEventListener("click", () => doImport(false));
 document.getElementById("imp-replace").addEventListener("click", () => doImport(true));
 
-// CSV, TXT, Excel (.xlsx) and PDF files are read by the backend. The rows it finds
+// CSV, TSV, TXT, Excel (.xlsx, .xlsm, .xls), .ods, Word (.docx) and PDF files are read by the backend. The rows it finds
 // are put in the box above, so you can check and fix them before importing.
 document.getElementById("file").addEventListener("change", async (e) => {
   const input = e.target;

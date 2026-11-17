@@ -22,8 +22,11 @@ from utils import (
     decode_text,
     duplicate_key,
     next_day,
+    parse_docx,
     parse_import_text,
+    parse_ods,
     parse_pdf,
+    parse_xls,
     parse_xlsx,
     payments_to_text,
     sniff_image,
@@ -35,10 +38,16 @@ MAX_IMAGE_BYTES = 3 * 1024 * 1024
 MAX_IMAGES_PER_PAYMENT = 10
 FILE_TYPES = {
     ".csv": "text/csv",
+    ".tsv": "text/tab-separated-values",
     ".txt": "text/plain",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    ".xls": "application/vnd.ms-excel",
+    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pdf": "application/pdf",
 }
+SUPPORTED_TYPES_TEXT = ".csv, .tsv, .txt, .xlsx, .xlsm, .xls, .ods, .docx or .pdf"
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
@@ -341,7 +350,7 @@ def import_payments(payload: ImportRequest, db: sqlite3.Connection = Depends(get
 @app.post("/api/parse-file")
 async def parse_file(file: UploadFile = File(...)):
     """
-    Reads a .csv, .txt, .xlsx or .pdf file and returns the payments it found as
+    Reads a .csv, .tsv, .txt, .xlsx, .xlsm, .xls, .ods, .docx or .pdf file and returns the payments it found as
     editable text lines. Nothing is saved here: the frontend shows the lines so
     the user can check them, then calls /api/payments/import.
     """
@@ -350,16 +359,20 @@ async def parse_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="File is too large (limit is 5 MB)")
     filename = (file.filename or "").lower()
     try:
-        if filename.endswith((".csv", ".txt")):
+        if filename.endswith((".csv", ".tsv", ".txt")):
             good, skipped = parse_import_text(decode_text(data))
-        elif filename.endswith(".xlsx"):
+        elif filename.endswith((".xlsx", ".xlsm")):
             good, skipped = parse_xlsx(data)
+        elif filename.endswith(".xls"):
+            good, skipped = parse_xls(data)
+        elif filename.endswith(".ods"):
+            good, skipped = parse_ods(data)
+        elif filename.endswith(".docx"):
+            good, skipped = parse_docx(data)
         elif filename.endswith(".pdf"):
             good, skipped = parse_pdf(data)
-        elif filename.endswith(".xls"):
-            raise ValueError("Old .xls files are not supported. In Excel, use Save As and choose .xlsx or .csv.")
         else:
-            raise ValueError("Unsupported file type. Use .csv, .txt, .xlsx or .pdf")
+            raise ValueError("Unsupported file type. Use " + SUPPORTED_TYPES_TEXT + ".")
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error))
     if not good:
@@ -378,14 +391,14 @@ def attachment_headers(filename: str) -> dict:
 
 @app.post("/api/files")
 def store_file(file: UploadFile = File(...), db: sqlite3.Connection = Depends(get_db)):
-    """Keeps a copy of an imported CSV, Excel or PDF file. The same file is stored only once."""
+    """Keeps a copy of an imported file (CSV, Excel, ODS, Word, PDF). The same file is stored only once."""
     data = file.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File is too large (limit is 5 MB)")
     name = os.path.basename((file.filename or "upload").replace("\\", "/")) or "upload"
     extension = os.path.splitext(name.lower())[1]
     if extension not in FILE_TYPES:
-        raise HTTPException(status_code=422, detail="Only .csv, .txt, .xlsx and .pdf files are stored")
+        raise HTTPException(status_code=422, detail="Only " + SUPPORTED_TYPES_TEXT + " files are stored")
     digest = hashlib.sha256(data).hexdigest()
     existing = db.execute("SELECT id, filename FROM files WHERE sha256 = ?", (digest,)).fetchone()
     if existing:
