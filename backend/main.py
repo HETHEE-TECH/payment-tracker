@@ -257,9 +257,19 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
         if payload.extra_amount is None:
             raise HTTPException(status_code=422, detail="Enter the extra amount that was paid.")
         extra = round(payload.extra_amount, 2)
+    paid = None
+    if payload.status == "part_paid":  # part of the amount was paid; the rest is still to pay
+        if payload.paid_amount is None:
+            raise HTTPException(status_code=422, detail="Enter how much was paid.")
+        if payload.paid_amount >= row["amount"]:
+            raise HTTPException(
+                status_code=422,
+                detail="The paid amount must be less than the full amount. If everything was paid, use Paid.",
+            )
+        paid = round(payload.paid_amount, 2)
     db.execute(
-        "UPDATE payments SET status = ?, new_date = ?, extra_amount = ? WHERE id = ?",
-        (payload.status, new_date, extra, payment_id),
+        "UPDATE payments SET status = ?, new_date = ?, extra_amount = ?, paid_amount = ? WHERE id = ?",
+        (payload.status, new_date, extra, paid, payment_id),
     )
     db.commit()
     updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
@@ -539,21 +549,27 @@ def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
     }
     extra = {"count": 0, "amount": 0.0}  # extra paid: on top of the amounts, so not part of the total
     rows = db.execute(
-        "SELECT status, COUNT(*) AS c, SUM(amount) AS s, SUM(extra_amount) AS x FROM payments "
-        "WHERE date LIKE ? GROUP BY status",
+        "SELECT status, COUNT(*) AS c, SUM(amount) AS s, SUM(extra_amount) AS x, SUM(paid_amount) AS p "
+        "FROM payments WHERE date LIKE ? GROUP BY status",
         (month + "-%",),
     ).fetchall()
+    total = {"count": 0, "amount": 0.0}
     for row in rows:
+        total["count"] += row["c"]
+        total["amount"] += row["s"] or 0.0
         if row["status"] == "extra_paid":  # its own amount counts as paid, the extra is listed separately
             result["paid"]["count"] += row["c"]
             result["paid"]["amount"] += row["s"] or 0.0
             extra = {"count": row["c"], "amount": row["x"] or 0.0}
-        else:
-            result[row["status"]] = {"count": row["c"], "amount": row["s"] or 0.0}
-    result["total"] = {
-        "count": sum(v["count"] for v in result.values()),
-        "amount": sum(v["amount"] for v in result.values()),
-    }
+        elif row["status"] == "part_paid":  # the paid part counts as paid, what is left as pending
+            result["paid"]["count"] += row["c"]
+            result["paid"]["amount"] += row["p"] or 0.0
+            result["pending"]["count"] += row["c"]
+            result["pending"]["amount"] += (row["s"] or 0.0) - (row["p"] or 0.0)
+        else:  # add to the bucket: an extra paid or part paid row may already have put something in it
+            result[row["status"]]["count"] += row["c"]
+            result[row["status"]]["amount"] += row["s"] or 0.0
+    result["total"] = total
     result["extra_paid"] = extra
     result["to_pay"] = {
         "count": result["pending"]["count"] + result["delayed"]["count"],

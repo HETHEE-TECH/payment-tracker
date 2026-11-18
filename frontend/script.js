@@ -2,8 +2,8 @@
 // change this to "http://127.0.0.1:8000/api".
 const API = "/api";
 
-const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Income need to come", extra_paid: "Extra paid" };
-const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad", need_to_come: "come", extra_paid: "extra" };
+const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Income need to come", extra_paid: "Extra paid", part_paid: "Part paid" };
+const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad", need_to_come: "come", extra_paid: "extra", part_paid: "part" };
 
 const pad = (n) => String(n).padStart(2, "0");
 const today = (() => {
@@ -126,7 +126,9 @@ function renderMonths() {
     const key = i.date.slice(0, 7);
     if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0, need_to_come: 0 });
     const m = months.get(key);
-    m.total += i.amount; m.count++; m[i.status === "extra_paid" ? "paid" : i.status] += i.amount;
+    m.total += i.amount; m.count++;
+    if (i.status === "part_paid") { m.paid += i.paid_amount || 0; m.pending += i.amount - (i.paid_amount || 0); }
+    else m[i.status === "extra_paid" ? "paid" : i.status] += i.amount;
   });
   const rows = [...months.values()].sort((a, b) => (a.key < b.key ? 1 : -1)); // newest month first
   const box = document.getElementById("dash-months");
@@ -176,13 +178,15 @@ function renderList(items) {
       let sub = "";
       if (i.status === "pending" && i.date < today) sub = "Past due date";
       if (i.status === "extra_paid" && i.extra_amount) sub = `Extra paid ${money(i.extra_amount)}`;
+      if (i.status === "part_paid") sub = `Paid ${money(i.paid_amount || 0)} \u00b7 Balance ${money(i.amount - (i.paid_amount || 0))}`;
       const btn = (act, label, cls) => `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button">${label}</button>`;
       let acts = "";
       if (i.status === "pending") {
-        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Income need to come", "come") + btn("extra_paid", "Extra paid", "extra");
+        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Income need to come", "come") + btn("extra_paid", "Extra paid", "extra") + btn("part_paid", "Part paid", "part");
       } else {
         acts += btn("pending", "Undo", "");
         if (i.status === "extra_paid") acts += btn("extra_edit", "Change extra", "extra");
+        if (i.status === "part_paid") acts += btn("part_edit", "Change paid", "part") + btn("paid", "Paid now", "ok");
         if (i.status === "delayed" || i.status === "need_to_come") acts += btn("paid", "Paid now", "ok");
       }
       acts += btn("remove", "Remove", "");
@@ -216,6 +220,15 @@ function summarize(items) {
   const blank = () => ({ count: 0, amount: 0 });
   const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), need_to_come: blank(), extra_paid: blank(), total: blank(), to_pay: blank() };
   items.forEach((i) => {
+    if (i.status === "part_paid") { // the paid part counts as paid, what is left is pending and still to pay
+      const paid = i.paid_amount || 0;
+      const left = Math.max(0, i.amount - paid);
+      s.paid.count++; s.paid.amount += paid;
+      s.pending.count++; s.pending.amount += left;
+      s.to_pay.count++; s.to_pay.amount += left;
+      s.total.count++; s.total.amount += i.amount;
+      return;
+    }
     const key = i.status === "extra_paid" ? "paid" : i.status; // an extra-paid payment's own amount counts as paid
     s[key].count++; s[key].amount += i.amount;
     if (i.status === "extra_paid") { s.extra_paid.count++; s.extra_paid.amount += i.extra_amount || 0; } // the extra is on top, not in the total
@@ -330,6 +343,10 @@ document.getElementById("list").addEventListener("click", async (e) => {
   try {
     if (act === "extra_paid" || act === "extra_edit") {
       openExtra(id); // asks for the extra amount first; the status is saved from the dialog
+      return;
+    }
+    if (act === "part_paid" || act === "part_edit") {
+      openPart(id); // asks how much was paid first
       return;
     }
     if (act === "desc-save") {
@@ -505,6 +522,57 @@ document.getElementById("filelist").addEventListener("click", async (e) => {
   if (!b) return;
   if (!window.confirm("Delete this stored file? The payments already imported from it stay in the list.")) return;
   try { await api("/files/" + b.dataset.fileDel, { method: "DELETE" }); loadFiles(); } catch (err) { showError(err.message); }
+});
+
+// ---------- part paid: how much of the amount was paid so far ----------
+const partDialog = document.getElementById("part-dialog");
+const partInput = document.getElementById("part-amount");
+let partFor = null;
+
+function showBalance() {
+  const item = allItems.find((x) => x.id === partFor);
+  const value = Number(partInput.value);
+  document.getElementById("part-balance").textContent =
+    item && value > 0 && value < item.amount ? `Balance still to pay: ${money(item.amount - value)}` : "";
+}
+
+function openPart(paymentId) {
+  const item = allItems.find((x) => String(x.id) === String(paymentId));
+  if (!item) return;
+  partFor = item.id;
+  document.getElementById("part-name").textContent = `${item.name} \u00b7 full amount ${money(item.amount)}`;
+  partInput.value = item.paid_amount || "";
+  document.getElementById("part-error").textContent = "";
+  showBalance();
+  partDialog.showModal();
+  partInput.focus();
+  partInput.select();
+}
+
+partInput.addEventListener("input", showBalance);
+document.getElementById("part-cancel").addEventListener("click", () => partDialog.close());
+document.getElementById("part-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const item = allItems.find((x) => x.id === partFor);
+  const value = Number(partInput.value);
+  const error = document.getElementById("part-error");
+  if (!(value > 0)) {
+    error.textContent = "Enter how much was paid, more than 0.";
+    partInput.focus();
+    return;
+  }
+  if (item && value >= item.amount) {
+    error.textContent = `The paid amount must be less than ${money(item.amount)}. If everything was paid, close this and use Paid.`;
+    partInput.focus();
+    return;
+  }
+  try {
+    reportSync(await api(`/payments/${partFor}/status`, { method: "PATCH", body: JSON.stringify({ status: "part_paid", paid_amount: value }) }));
+    partDialog.close();
+    await refresh();
+  } catch (err) {
+    error.textContent = err.message;
+  }
 });
 
 // ---------- extra paid: the extra amount comes from the description, and is confirmed here ----------

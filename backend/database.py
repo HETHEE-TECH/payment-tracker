@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS payments (
     status   TEXT    NOT NULL DEFAULT 'pending',
     new_date TEXT,                        -- set when status is 'delayed'
     description TEXT,                     -- comment written by the user (also goes into the Excel sheet)
-    extra_amount REAL                     -- the extra paid, when the status is 'extra_paid'
+    extra_amount REAL,                    -- the extra paid, when the status is 'extra_paid'
+    paid_amount REAL                      -- how much was paid so far, when the status is 'part_paid'
 )
 """, """
 -- Every file you import (CSV, Excel, PDF) is kept here, so it is not lost.
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS payments (
     status   TEXT             NOT NULL DEFAULT 'pending',
     new_date TEXT,                         -- set when status is 'delayed'
     description TEXT,                      -- comment written by the user (also goes into the Excel sheet)
-    extra_amount DOUBLE PRECISION          -- the extra paid, when the status is 'extra_paid'
+    extra_amount DOUBLE PRECISION,         -- the extra paid, when the status is 'extra_paid'
+    paid_amount DOUBLE PRECISION           -- how much was paid so far, when the status is 'part_paid'
 )
 """, """
 CREATE TABLE IF NOT EXISTS files (
@@ -143,6 +145,7 @@ def init_db() -> None:
         # Databases made before the description column existed get it added here.
         raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS description TEXT")
         raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS extra_amount DOUBLE PRECISION")
+        raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS paid_amount DOUBLE PRECISION")
         raw.commit()
         raw.close()
         return
@@ -154,6 +157,8 @@ def init_db() -> None:
         conn.execute("ALTER TABLE payments ADD COLUMN description TEXT")  # database from before this column
     if "extra_amount" not in columns:
         conn.execute("ALTER TABLE payments ADD COLUMN extra_amount REAL")
+    if "paid_amount" not in columns:
+        conn.execute("ALTER TABLE payments ADD COLUMN paid_amount REAL")
     conn.commit()
     conn.close()
 

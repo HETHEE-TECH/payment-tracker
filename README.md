@@ -6,6 +6,9 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
 - **Green** (Paid): paid on its date.
 - **Yellow** (Delayed): moved to the next day. The list shows "Pay on <date>".
 - **Red** (Cancelled).
+- **Orange** (Part paid): only part of the amount was paid, for example 2000 of 4000. Click Part paid and type what was paid so far;
+  the row shows `Paid 2,000 · Balance 2,000`. On the dashboard the paid part counts as Paid and the balance as Pending and
+  Still to pay, so Paid + Pending still add up to the full amount. Change paid updates it, and Paid now completes it.
 - **Teal** (Extra paid): the payment was paid and something extra was paid on top. Click Extra paid: the app reads the extra amount
   from the description (for example `paid extra 500` or `Rs.1,500 extra`), you confirm or type it, and it is saved with the payment.
   The payment's own amount counts as Paid; the extra is shown in its own Extra paid card and is not part of the total.
@@ -94,7 +97,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - A payment you add by hand is written into the stored Excel of its month, under its day. A new day
   gets its own column, a new week gets a new block at the bottom, and when a day has no free row a
   row is inserted above the SUM row and the SUM formulas are extended.
-- Paid, Delayed, Cancelled, Income need to come and Extra paid colour the payment's name, amount and description cells green, yellow, red, purple and teal. Undo removes the colour.
+- Paid, Delayed, Cancelled, Income need to come, Extra paid and Part paid colour the payment's name, amount and description cells green, yellow, red, purple, teal and orange. Undo removes the colour.
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
 - Every payment has a Description box next to the image buttons. It is required: the image cannot be
   uploaded until the description is written. Whatever is left in the box is saved (also when you leave the box
@@ -138,7 +141,7 @@ CORS is already enabled in the backend.
 | --- | --- | --- |
 | GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
 | POST | `/api/payments` | Add one payment `{name, amount, date}`. Also writes it into the stored Excel file of its month |
-| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed`, `cancelled`, `need_to_come` or `extra_paid` (`extra_paid` also needs `extra_amount`). Also colours the payment in the stored Excel file |
+| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed`, `cancelled`, `need_to_come` or `extra_paid` or `part_paid` (`extra_paid` also needs `extra_amount`, `part_paid` needs `paid_amount`, less than the amount). Also colours the payment in the stored Excel file |
 | PUT | `/api/payments/{id}/description` | Save the required description (also written into the stored Excel files) |
 | DELETE | `/api/payments/{id}` | Remove a payment. Also removes it from the stored Excel files |
 | POST | `/api/parse-file` | Upload .csv / .tsv / .txt / .xlsx / .xlsm / .xls / .ods / .docx / .pdf (form field `file`), returns the rows found as text. Saves nothing |
