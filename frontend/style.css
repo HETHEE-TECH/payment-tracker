@@ -89,7 +89,7 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 .donut .hole small { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.card .v { font-size: 1.15rem; font-weight: 500; overflow-wrap: anywhere; }
+.card .v { font-size: 1.15rem; font-weight: 500; overflow-wrap: anywhere; margin-top: auto; } /* amounts line up even when a label wraps */
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--line); }
 .dot.come { background: var(--come-solid); } .dot.ok { background: var(--ok-solid); } .dot.pend { background: var(--pend-solid); } .dot.warn { background: var(--warn-solid); } .dot.bad { background: var(--bad-solid); }
 .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }

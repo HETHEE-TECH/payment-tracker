@@ -2,7 +2,7 @@
 // change this to "http://127.0.0.1:8000/api".
 const API = "/api";
 
-const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Need to come" };
+const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Income need to come" };
 const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad", need_to_come: "come" };
 
 const pad = (n) => String(n).padStart(2, "0");
@@ -69,7 +69,7 @@ const DASH_STATUSES = [
   ["pending", "Pending", "pend", "--pend-solid"],
   ["delayed", "Delayed", "warn", "--warn-solid"],
   ["cancelled", "Cancelled", "bad", "--bad-solid"],
-  ["need_to_come", "Need to come", "come", "--come-solid"],
+  ["need_to_come", "Income need to come", "come", "--come-solid"],
 ];
 
 // What the dashboard is counting, from the filters that are set (for example "November 2026 · Paid").
@@ -175,7 +175,7 @@ function renderList(items) {
       const btn = (act, label, cls) => `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button">${label}</button>`;
       let acts = "";
       if (i.status === "pending") {
-        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Need to come", "come");
+        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Income need to come", "come");
       } else {
         acts += btn("pending", "Undo", "");
         if (i.status === "delayed" || i.status === "need_to_come") acts += btn("paid", "Paid now", "ok");

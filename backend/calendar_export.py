@@ -7,7 +7,7 @@ Builds a calendar-layout Excel file (used when a month has no stored Excel file 
     Apple 2400 note  Apple 11820 ...    <- item, amount and description under each day
     =SUM(...)                           <- total of each day, one block per week
 
-Every payment of the month is included. Paid is green, delayed is yellow, cancelled is red and need to come is purple.
+Every payment of the month is included. Paid is green, delayed is yellow, cancelled is red and income need to come is purple.
 The file can be imported back into the app.
 """
 import io

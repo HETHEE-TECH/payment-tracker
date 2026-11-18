@@ -3,7 +3,7 @@ Keeps a stored calendar-style Excel file up to date.
 
 When you add a payment by hand, or change its status, the payment is written into the stored
 Excel file for its month (under the right day), and its two cells get the status colour:
-paid = green, delayed = yellow, cancelled = red, need to come = purple. Pending has no colour.
+paid = green, delayed = yellow, cancelled = red, income need to come = purple. Pending has no colour.
 
 The file's own layout is kept: only the needed cells are written. Every day has three columns:
 name, amount and description. A sheet that still has two columns per day gets the third column
