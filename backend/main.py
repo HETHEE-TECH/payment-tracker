@@ -252,9 +252,14 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
         raise HTTPException(status_code=404, detail="Payment not found")
     # Delayed means: today's payment moves to the next day.
     new_date = next_day(row["date"]) if payload.status == "delayed" else None
+    extra = None
+    if payload.status == "extra_paid":  # the extra amount is kept only while the status is extra_paid
+        if payload.extra_amount is None:
+            raise HTTPException(status_code=422, detail="Enter the extra amount that was paid.")
+        extra = round(payload.extra_amount, 2)
     db.execute(
-        "UPDATE payments SET status = ?, new_date = ? WHERE id = ?",
-        (payload.status, new_date, payment_id),
+        "UPDATE payments SET status = ?, new_date = ?, extra_amount = ? WHERE id = ?",
+        (payload.status, new_date, extra, payment_id),
     )
     db.commit()
     updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
@@ -532,16 +537,24 @@ def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
         status: {"count": 0, "amount": 0.0}
         for status in ("pending", "paid", "delayed", "cancelled", "need_to_come")
     }
+    extra = {"count": 0, "amount": 0.0}  # extra paid: on top of the amounts, so not part of the total
     rows = db.execute(
-        "SELECT status, COUNT(*) AS c, SUM(amount) AS s FROM payments WHERE date LIKE ? GROUP BY status",
+        "SELECT status, COUNT(*) AS c, SUM(amount) AS s, SUM(extra_amount) AS x FROM payments "
+        "WHERE date LIKE ? GROUP BY status",
         (month + "-%",),
     ).fetchall()
     for row in rows:
-        result[row["status"]] = {"count": row["c"], "amount": row["s"] or 0.0}
+        if row["status"] == "extra_paid":  # its own amount counts as paid, the extra is listed separately
+            result["paid"]["count"] += row["c"]
+            result["paid"]["amount"] += row["s"] or 0.0
+            extra = {"count": row["c"], "amount": row["x"] or 0.0}
+        else:
+            result[row["status"]] = {"count": row["c"], "amount": row["s"] or 0.0}
     result["total"] = {
         "count": sum(v["count"] for v in result.values()),
         "amount": sum(v["amount"] for v in result.values()),
     }
+    result["extra_paid"] = extra
     result["to_pay"] = {
         "count": result["pending"]["count"] + result["delayed"]["count"],
         "amount": result["pending"]["amount"] + result["delayed"]["amount"],

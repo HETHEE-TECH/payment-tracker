@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-Status = Literal["pending", "paid", "delayed", "cancelled", "need_to_come"]
+Status = Literal["pending", "paid", "delayed", "cancelled", "need_to_come", "extra_paid"]
 
 
 class PaymentCreate(BaseModel):
@@ -20,6 +20,7 @@ class PaymentOut(BaseModel):
     status: Status
     new_date: Optional[str] = None
     description: Optional[str] = None
+    extra_amount: Optional[float] = None  # the extra that was paid (status extra_paid)
     has_image: bool = False
     images: List[int] = []  # ids of the payment's images, oldest first
     files_updated: List[str] = []  # stored Excel files changed by this action
@@ -32,6 +33,7 @@ class DescriptionUpdate(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: Status
+    extra_amount: Optional[float] = Field(default=None, gt=0)  # needed for extra_paid
 
 
 class ImportRequest(BaseModel):

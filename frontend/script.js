@@ -2,8 +2,8 @@
 // change this to "http://127.0.0.1:8000/api".
 const API = "/api";
 
-const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Income need to come" };
-const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad", need_to_come: "come" };
+const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Income need to come", extra_paid: "Extra paid" };
+const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad", need_to_come: "come", extra_paid: "extra" };
 
 const pad = (n) => String(n).padStart(2, "0");
 const today = (() => {
@@ -98,7 +98,10 @@ function renderSummary(s) {
     `<div class="card"><span class="k"><span class="dot ${dot}"></span>${label}</span>` +
     `<span class="v num">${money(s[key].amount)}</span>` +
     `<span class="c">${count(s[key].count)} \u00b7 ${Math.round(pct(s[key]))}%</span></div>`
-  ).join("");
+  ).join("") +
+    `<div class="card"><span class="k"><span class="dot extra"></span>Extra paid</span>` +
+    `<span class="v num">${money(s.extra_paid.amount)}</span>` +
+    `<span class="c">${count(s.extra_paid.count)} \u00b7 on top of the total</span></div>`;
   // Donut and bar: one slice per status, sized by amount.
   let at = 0;
   const stops = [];
@@ -123,7 +126,7 @@ function renderMonths() {
     const key = i.date.slice(0, 7);
     if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0, need_to_come: 0 });
     const m = months.get(key);
-    m.total += i.amount; m.count++; m[i.status] += i.amount;
+    m.total += i.amount; m.count++; m[i.status === "extra_paid" ? "paid" : i.status] += i.amount;
   });
   const rows = [...months.values()].sort((a, b) => (a.key < b.key ? 1 : -1)); // newest month first
   const box = document.getElementById("dash-months");
@@ -172,12 +175,14 @@ function renderList(items) {
     const rows = g.map((i) => {
       let sub = "";
       if (i.status === "pending" && i.date < today) sub = "Past due date";
+      if (i.status === "extra_paid" && i.extra_amount) sub = `Extra paid ${money(i.extra_amount)}`;
       const btn = (act, label, cls) => `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button">${label}</button>`;
       let acts = "";
       if (i.status === "pending") {
-        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Income need to come", "come");
+        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Income need to come", "come") + btn("extra_paid", "Extra paid", "extra");
       } else {
         acts += btn("pending", "Undo", "");
+        if (i.status === "extra_paid") acts += btn("extra_edit", "Change extra", "extra");
         if (i.status === "delayed" || i.status === "need_to_come") acts += btn("paid", "Paid now", "ok");
       }
       acts += btn("remove", "Remove", "");
@@ -209,9 +214,11 @@ function renderList(items) {
 
 function summarize(items) {
   const blank = () => ({ count: 0, amount: 0 });
-  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), need_to_come: blank(), total: blank(), to_pay: blank() };
+  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), need_to_come: blank(), extra_paid: blank(), total: blank(), to_pay: blank() };
   items.forEach((i) => {
-    s[i.status].count++; s[i.status].amount += i.amount;
+    const key = i.status === "extra_paid" ? "paid" : i.status; // an extra-paid payment's own amount counts as paid
+    s[key].count++; s[key].amount += i.amount;
+    if (i.status === "extra_paid") { s.extra_paid.count++; s.extra_paid.amount += i.extra_amount || 0; } // the extra is on top, not in the total
     s.total.count++; s.total.amount += i.amount;
     if (i.status === "pending" || i.status === "delayed") { s.to_pay.count++; s.to_pay.amount += i.amount; }
   });
@@ -321,6 +328,10 @@ document.getElementById("list").addEventListener("click", async (e) => {
   const id = button.dataset.id;
   const act = button.dataset.act;
   try {
+    if (act === "extra_paid" || act === "extra_edit") {
+      openExtra(id); // asks for the extra amount first; the status is saved from the dialog
+      return;
+    }
     if (act === "desc-save") {
       await saveDescription(id, document.querySelector(`input[data-desc="${id}"]`), true);
       return; // the list is not redrawn, so what you typed in the other rows stays
@@ -494,6 +505,60 @@ document.getElementById("filelist").addEventListener("click", async (e) => {
   if (!b) return;
   if (!window.confirm("Delete this stored file? The payments already imported from it stay in the list.")) return;
   try { await api("/files/" + b.dataset.fileDel, { method: "DELETE" }); loadFiles(); } catch (err) { showError(err.message); }
+});
+
+// ---------- extra paid: the extra amount comes from the description, and is confirmed here ----------
+const extraDialog = document.getElementById("extra-dialog");
+const extraInput = document.getElementById("extra-amount");
+let extraFor = null;
+
+// The amount in a description such as "extra 500 paid" or "Rs.1,500 extra": the number closest to the word
+// "extra", or the only number when the word is missing. Nothing when it cannot tell.
+function guessExtra(text) {
+  if (!text) return null;
+  const found = [];
+  const re = /(?:\u20b9|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d+)?)/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const n = Number(m[1].replace(/,/g, ""));
+    if (n > 0) found.push({ n, at: m.index });
+  }
+  if (!found.length) return null;
+  const word = /extra/i.exec(text);
+  if (word) return found.sort((a, b) => Math.abs(a.at - word.index) - Math.abs(b.at - word.index))[0].n;
+  return found.length === 1 ? found[0].n : null;
+}
+
+function openExtra(paymentId) {
+  const item = allItems.find((x) => String(x.id) === String(paymentId));
+  if (!item) return;
+  extraFor = item.id;
+  document.getElementById("extra-name").textContent = `${item.name} \u00b7 ${money(item.amount)}`;
+  document.getElementById("extra-desc").textContent = item.description ? `Description: ${item.description}` : "No description yet.";
+  extraInput.value = item.extra_amount || guessExtra(item.description) || "";
+  document.getElementById("extra-error").textContent = "";
+  extraDialog.showModal();
+  extraInput.focus();
+  extraInput.select();
+}
+
+document.getElementById("extra-cancel").addEventListener("click", () => extraDialog.close());
+document.getElementById("extra-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = Number(extraInput.value);
+  const error = document.getElementById("extra-error");
+  if (!(value > 0)) {
+    error.textContent = "Enter the extra amount, more than 0.";
+    extraInput.focus();
+    return;
+  }
+  try {
+    reportSync(await api(`/payments/${extraFor}/status`, { method: "PATCH", body: JSON.stringify({ status: "extra_paid", extra_amount: value }) }));
+    extraDialog.close();
+    await refresh();
+  } catch (err) {
+    error.textContent = err.message;
+  }
 });
 
 // ---------- image viewer: all images of a payment, one after the other ----------
