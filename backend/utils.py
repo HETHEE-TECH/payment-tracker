@@ -665,10 +665,13 @@ def parse_docx(data: bytes) -> Tuple[List[Payment], int]:
 # ---------- the colour a payment gets in an Excel sheet ----------
 
 def excel_status(payment: dict) -> str:
-    """Paid, delayed and cancelled keep their own colour. A pending payment that also has an amount in
-    Awaiting income, We paid or Part paid pending is coloured by the first of those."""
-    if payment.get("status") in ("paid", "delayed", "cancelled"):
+    """Paid and cancelled keep their own colour (also when the payment is delayed too). A payment that is
+    delayed is yellow. A pending payment that also has an amount in Awaiting income, We paid or Part paid
+    pending is coloured by the first of those."""
+    if payment.get("status") in ("paid", "cancelled"):
         return payment["status"]
+    if payment.get("status") == "delayed" or payment.get("new_date"):
+        return "delayed"
     if payment.get("awaiting_amount"):
         return "awaiting_income"
     if payment.get("we_paid_amount"):

@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS payment_images (
 
 # Payments saved with the statuses of an earlier version become a normal status plus an amount.
 LEGACY_STATUS_MIGRATION = [
+    # Delayed is now a mark that can sit next to Paid or Cancel: it is the delayed date (new_date) being set.
+    "UPDATE payments SET status = 'pending' WHERE status = 'delayed'",
     "UPDATE payments SET awaiting_amount = amount, status = 'pending' WHERE status = 'need_to_come'",
     "UPDATE payments SET we_paid_amount = extra_amount, status = 'paid' WHERE status = 'extra_paid'",
     "UPDATE payments SET part_pending_amount = amount - COALESCE(paid_amount, 0), status = 'pending' WHERE status = 'part_paid'",

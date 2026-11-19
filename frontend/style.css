@@ -163,6 +163,7 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 .grp + .grp { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--line); }
 .tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
 .chip { padding: 2px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+.chip.warn { background: var(--warn-solid); color: #2a2000; }
 .chip.come { background: var(--come-solid); color: var(--come-pill-fg); }
 .chip.extra { background: var(--extra-solid); color: var(--extra-pill-fg); }
 .chip.part { background: var(--part-solid); color: var(--part-pill-fg); }

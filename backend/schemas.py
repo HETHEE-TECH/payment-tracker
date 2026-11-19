@@ -38,7 +38,8 @@ class AmountUpdate(BaseModel):
 
 
 class StatusUpdate(BaseModel):
-    status: Status
+    status: Optional[Status] = None  # pending, paid or cancelled (an older page may still send delayed)
+    delayed: Optional[bool] = None  # Delayed on or off: it can be on together with Paid or Cancel
 
 
 class ImportRequest(BaseModel):

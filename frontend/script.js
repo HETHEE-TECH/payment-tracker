@@ -5,6 +5,14 @@ const API = "/api";
 const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled" };
 const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad" };
 
+// A payment has a status (pending, paid or cancelled) and can also be delayed, which sits next to Paid or Cancel.
+// Delayed means the delayed date (new_date) is set. A "delayed" status from an older version counts as delayed too.
+const isDelayed = (i) => Boolean(i.new_date) || i.status === "delayed";
+const mainStatus = (i) => (i.status === "delayed" ? "pending" : i.status);
+// The one place a payment takes in the donut, the bar and the month rows: paid or cancelled first, then delayed.
+const slice = (i) => (mainStatus(i) !== "pending" ? mainStatus(i) : isDelayed(i) ? "delayed" : "pending");
+const rowClass = (i) => ({ paid: "ok", cancelled: "bad", delayed: "warn", pending: "" })[slice(i)];
+
 // Three amounts that can be added to a payment next to its status. They are typed in, and they are not
 // part of the Total, Paid, Pending, Delayed or Cancelled numbers: each shows only in its own card.
 const EXTRA_KINDS = {
@@ -93,6 +101,7 @@ function scopeLabel() {
 function renderSummary(s) {
   const base = s.total.amount;
   const pct = (part) => (base ? (part.amount / base) * 100 : 0);
+  const sliceOf = (key) => s.slices[key];
   const count = (n) => `${n} ${n === 1 ? "payment" : "payments"}`;
   const text = (id, value) => { document.getElementById(id).textContent = value; };
   text("dash-scope", scopeLabel());
@@ -100,7 +109,7 @@ function renderSummary(s) {
   text("dash-total-count", count(s.total.count));
   text("dash-topay", money(s.to_pay.amount));
   text("dash-topay-count", count(s.to_pay.count));
-  text("dash-paid-pct", `${Math.round(pct(s.paid))}%`);
+  text("dash-paid-pct", `${Math.round(pct(s.slices.paid))}%`);
   document.getElementById("dash-cards").innerHTML = DASH_STATUSES.map(([key, label, dot]) =>
     `<div class="card"><span class="k"><span class="dot ${dot}"></span>${label}</span>` +
     `<span class="v num">${money(s[key].amount)}</span>` +
@@ -115,13 +124,13 @@ function renderSummary(s) {
   let at = 0;
   const stops = [];
   DASH_STATUSES.forEach(([key, , , cssVar]) => {
-    const share = pct(s[key]);
+    const share = pct(sliceOf(key));
     if (share > 0) stops.push(`var(${cssVar}) ${at}% ${at + share}%`);
     at += share;
   });
   document.getElementById("dash-donut").style.background = stops.length ? `conic-gradient(${stops.join(", ")})` : "";
   document.getElementById("bar").innerHTML = DASH_STATUSES.map(([key, , dot]) =>
-    `<span class="${dot}" style="width:${pct(s[key])}%"></span>`
+    `<span class="${dot}" style="width:${pct(sliceOf(key))}%"></span>`
   ).join("");
 }
 
@@ -135,7 +144,7 @@ function renderMonths() {
     const key = i.date.slice(0, 7);
     if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
     const m = months.get(key);
-    m.total += i.amount; m.count++; m[i.status] += i.amount;
+    m.total += i.amount; m.count++; m[slice(i)] += i.amount;
   });
   const rows = [...months.values()].sort((a, b) => (a.key < b.key ? 1 : -1)); // newest month first
   const box = document.getElementById("dash-months");
@@ -183,21 +192,25 @@ function renderList(items) {
     const isToday = d === today;
     const rows = g.map((i) => {
       let sub = "";
-      if (i.status === "pending" && i.date < today) sub = "Past due date";
+      if (mainStatus(i) === "pending" && !isDelayed(i) && i.date < today) sub = "Past due date";
+      if (isDelayed(i) && i.new_date) sub = `Delayed to ${fmtDay(i.new_date)}`;
       const btn = (act, label, cls, pressed) =>
         `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button" aria-pressed="${pressed}">${pressed ? '<span aria-hidden="true">\u2713 </span>' : ""}${label}</button>`;
-      // Status: one of Paid, Delayed, Cancel (click it again to undo). Also: any of the three amounts, together with the status.
-      const statusBtn = (key, label, cls) => btn(i.status === key ? "pending" : key, label, cls, i.status === key);
+      // Paid and Cancel are one or the other. Delayed can be on together with either. Click a button again to switch it off.
+      // Also: any of the three amounts, together with all of that.
+      const statusBtn = (key, label, cls) => btn(mainStatus(i) === key ? "pending" : key, label, cls, mainStatus(i) === key);
+      const delayedBtn = btn(isDelayed(i) ? "delayed:off" : "delayed:on", "Delayed", "warn", isDelayed(i));
       const extraBtn = (kindKey) => {
         const kind = EXTRA_KINDS[kindKey];
         const value = i[kind.field];
         return btn(`extra:${kindKey}`, value ? `${kind.short} ${money(value)}` : kind.short, kind.cls, Boolean(value));
       };
-      const acts = `<span class="grp" role="group" aria-label="Status">${statusBtn("paid", "Paid", "ok")}${statusBtn("delayed", "Delayed", "warn")}${statusBtn("cancelled", "Cancel", "bad")}</span>` +
+      const acts = `<span class="grp" role="group" aria-label="Status">${statusBtn("paid", "Paid", "ok")}${delayedBtn}${statusBtn("cancelled", "Cancel", "bad")}</span>` +
         `<span class="grp" role="group" aria-label="Also add an amount">${extraBtn("awaiting")}${extraBtn("we_paid")}${extraBtn("part_pending")}</span>` +
         `<button class="btn small" data-act="remove" data-id="${i.id}" type="button">Remove</button>`;
-      const chips = Object.values(EXTRA_KINDS).filter((kind) => i[kind.field])
-        .map((kind) => `<span class="chip ${kind.cls}">${kind.short} ${money(i[kind.field])}</span>`).join("");
+      const chips = (isDelayed(i) && mainStatus(i) !== "pending" ? `<span class="chip warn">Delayed</span>` : "") +
+        Object.values(EXTRA_KINDS).filter((kind) => i[kind.field])
+          .map((kind) => `<span class="chip ${kind.cls}">${kind.short} ${money(i[kind.field])}</span>`).join("");
       // 7,000 paid and 13,000 awaiting: the original amount was 20,000.
       const original = i.awaiting_amount
         ? `<div class="original">Original amount ${money(i.amount + i.awaiting_amount)} = ${money(i.amount)} + ${money(i.awaiting_amount)} awaiting income</div>` : "";
@@ -216,10 +229,10 @@ function renderList(items) {
         `placeholder="Write the description (required)" autocomplete="off" value="${esc(desc)}" data-desc="${i.id}" required></div>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button>` +
         `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")}</span></div>`;
-      return `<div class="item ${STATUS_CLASS[i.status]}${isToday ? " todayrow" : ""}">` +
+      return `<div class="item ${rowClass(i)}${isToday ? " todayrow" : ""}">` +
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
-        `<span class="pill">${STATUS_LABEL[i.status]}</span>` +
+        `<span class="pill">${STATUS_LABEL[slice(i)]}</span>` +
         (chips || original ? `<div class="tags">${chips}${original}</div>` : "") +
         `<div class="acts">${acts}</div>${descRow}</div>`;
     }).join("");
@@ -230,12 +243,18 @@ function renderList(items) {
 
 function summarize(items) {
   const blank = () => ({ count: 0, amount: 0 });
-  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), total: blank(), to_pay: blank(), extras: {} };
+  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), total: blank(), to_pay: blank(), slices: { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank() }, extras: {} };
   Object.values(EXTRA_KINDS).forEach((kind) => { s.extras[kind.field] = blank(); });
+  const add = (bucket, i) => { bucket.count++; bucket.amount += i.amount; };
   items.forEach((i) => {
-    s[i.status].count++; s[i.status].amount += i.amount;
-    s.total.count++; s.total.amount += i.amount;
-    if (i.status === "pending" || i.status === "delayed") { s.to_pay.count++; s.to_pay.amount += i.amount; }
+    const status = mainStatus(i);
+    const delayed = isDelayed(i);
+    add(s.total, i);
+    add(s.slices[slice(i)], i); // each payment once: this feeds the donut and the bar
+    if (status === "paid" || status === "cancelled") add(s[status], i);
+    else if (!delayed) add(s.pending, i);
+    if (delayed) add(s.delayed, i); // Delayed counts every delayed payment, also one that is Paid or Cancelled as well
+    if (status === "pending") add(s.to_pay, i); // not paid and not cancelled, delayed or not
     Object.values(EXTRA_KINDS).forEach((kind) => { // typed-in amounts: only in their own card, never in the numbers above
       if (i[kind.field]) { s.extras[kind.field].count++; s.extras[kind.field].amount += i[kind.field]; }
     });
@@ -243,11 +262,13 @@ function summarize(items) {
   return s;
 }
 
-// A status filter is one of the four statuses, or one of the three typed-in amounts (payments that have it).
+// A status filter is Pending, Paid, Delayed, Cancelled, or one of the three typed-in amounts (payments that have it).
 function matchesStatus(item, wanted) {
   if (!wanted) return true;
   if (EXTRA_KINDS[wanted]) return Boolean(item[EXTRA_KINDS[wanted].field]);
-  return item.status === wanted;
+  if (wanted === "delayed") return isDelayed(item);
+  if (wanted === "pending") return mainStatus(item) === "pending" && !isDelayed(item);
+  return mainStatus(item) === wanted;
 }
 
 let allItems = [];
@@ -362,6 +383,7 @@ document.getElementById("list").addEventListener("click", async (e) => {
       return; // the list is not redrawn, so what you typed in the other rows stays
     } else if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
     else if (act === "img-del") await api(`/images/${id}`, { method: "DELETE" }); // here id is the image's id
+    else if (act === "delayed:on" || act === "delayed:off") reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ delayed: act === "delayed:on" }) }));
     else reportSync(await api(`/payments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status: act }) }));
     refresh();
   } catch (err) {

@@ -179,7 +179,7 @@ def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
             month_rows = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT name, amount, date, status, description, awaiting_amount, we_paid_amount, "
+                    "SELECT name, amount, date, status, new_date, description, awaiting_amount, we_paid_amount, "
                     "part_pending_amount FROM payments WHERE date LIKE ? ORDER BY date, name",
                     (month_key + "-%",),
                 ).fetchall()
@@ -256,8 +256,21 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
     if row is None:
         raise HTTPException(status_code=404, detail="Payment not found")
     # Delayed means: today's payment moves to the next day.
-    new_date = next_day(row["date"]) if payload.status == "delayed" else None
-    db.execute("UPDATE payments SET status = ?, new_date = ? WHERE id = ?", (payload.status, new_date, payment_id))
+    if payload.status is None and payload.delayed is None:
+        raise HTTPException(status_code=422, detail="Send a status or delayed true/false.")
+    status, new_date = row["status"], row["new_date"]
+    delayed = payload.delayed
+    if payload.status == "delayed":  # an older page: delayed is a mark now, not a status
+        delayed = True
+    elif payload.status is not None:
+        status = payload.status
+    if status == "delayed":
+        status = "pending"
+    if delayed is True and not new_date:
+        new_date = next_day(row["date"])  # delayed means: the payment moves to the next day
+    elif delayed is False:
+        new_date = None
+    db.execute("UPDATE payments SET status = ?, new_date = ? WHERE id = ?", (status, new_date, payment_id))
     db.commit()
     updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
     return {**updated, **sync_stored_excels(db, updated, add_if_missing=excel_status(updated) != "pending")}
@@ -552,19 +565,28 @@ def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
     result = {status: {"count": 0, "amount": 0.0} for status in ("pending", "paid", "delayed", "cancelled")}
     total = {"count": 0, "amount": 0.0}
     rows = db.execute(
-        "SELECT status, COUNT(*) AS c, SUM(amount) AS s FROM payments WHERE date LIKE ? GROUP BY status",
+        "SELECT status, CASE WHEN new_date IS NOT NULL THEN 1 ELSE 0 END AS d, COUNT(*) AS c, SUM(amount) AS s "
+        "FROM payments WHERE date LIKE ? GROUP BY status, CASE WHEN new_date IS NOT NULL THEN 1 ELSE 0 END",
         (month + "-%",),
     ).fetchall()
+    to_pay = {"count": 0, "amount": 0.0}
     for row in rows:
-        result[row["status"]]["count"] += row["c"]
-        result[row["status"]]["amount"] += row["s"] or 0.0
+        status = "pending" if row["status"] == "delayed" else row["status"]
+        delayed = row["d"] == 1 or row["status"] == "delayed"
+        amount = row["s"] or 0.0
         total["count"] += row["c"]
-        total["amount"] += row["s"] or 0.0
+        total["amount"] += amount
+        if delayed:  # Delayed counts every delayed payment, also one that is paid or cancelled as well
+            result["delayed"]["count"] += row["c"]
+            result["delayed"]["amount"] += amount
+        if status in ("paid", "cancelled") or not delayed:
+            result[status]["count"] += row["c"]
+            result[status]["amount"] += amount
+        if status == "pending":  # still to pay: not paid and not cancelled, delayed or not
+            to_pay["count"] += row["c"]
+            to_pay["amount"] += amount
     result["total"] = total
-    result["to_pay"] = {
-        "count": result["pending"]["count"] + result["delayed"]["count"],
-        "amount": result["pending"]["amount"] + result["delayed"]["amount"],
-    }
+    result["to_pay"] = to_pay
     # Awaiting income, We paid and Part paid pending: the amounts that were entered, kept out of the totals above.
     extra = db.execute(
         "SELECT COUNT(awaiting_amount) AS ac, SUM(awaiting_amount) AS a, COUNT(we_paid_amount) AS wc, "
