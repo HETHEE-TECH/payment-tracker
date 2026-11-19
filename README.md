@@ -6,13 +6,15 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
 - **Green** (Paid): paid on its date.
 - **Yellow** (Delayed): moved to the next day. The list shows "Pay on <date>".
 - **Red** (Cancelled).
-- **Orange** (Part paid): only part of the amount was paid, for example 2000 of 4000. Click Part paid and type what was paid so far;
-  the row shows `Paid 2,000 · Balance 2,000`. On the dashboard the paid part counts as Paid and the balance as Pending and
-  Still to pay, so Paid + Pending still add up to the full amount. Change paid updates it, and Paid now completes it.
-- **Teal** (Extra paid): the payment was paid and something extra was paid on top. Click Extra paid: the app reads the extra amount
-  from the description (for example `paid extra 500` or `Rs.1,500 extra`), you confirm or type it, and it is saved with the payment.
-  The payment's own amount counts as Paid; the extra is shown in its own Extra paid card and is not part of the total.
-- **Purple** (Income need to come): a payment that still has to come in. It is not counted in "Still to pay" on the dashboard, but it is in the total.
+- Each payment has one status: **Paid** (green), **Delayed** (yellow) or **Cancel** (red). Click the status again to undo it.
+- Next to the status, any of three amounts can be added by clicking its button and typing the amount in a small window
+  (the app fills it in from the description when it finds a number next to a word such as `balance`, `to come`, `extra` or `paid`):
+  - **Awaiting income** (purple): income that still has to come in.
+  - **We paid** (teal): an amount we paid.
+  - **Part paid pending** (orange): the pending part of a part payment.
+  They can be used together with the status and with each other. For example Paid with an amount of 7,000 and 13,000 in
+  Awaiting income shows `Original amount 20,000 = 7,000 + 13,000 awaiting income`. Click the button again to change or remove the amount.
+- The three amounts are never added to the dashboard's Total, Paid, Pending, Delayed or Cancelled numbers. Each one has its own card.
 
 ## Structure
 
@@ -97,7 +99,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - A payment you add by hand is written into the stored Excel of its month, under its day. A new day
   gets its own column, a new week gets a new block at the bottom, and when a day has no free row a
   row is inserted above the SUM row and the SUM formulas are extended.
-- Paid, Delayed, Cancelled, Income need to come, Extra paid and Part paid colour the payment's name, amount and description cells green, yellow, red, purple, teal and orange. Undo removes the colour.
+- Paid, Delayed and Cancelled colour the payment's name, amount and description cells green, yellow and red. A pending payment that has an amount in Awaiting income, We paid or Part paid pending is coloured purple, teal or orange (the first one it has). Undo removes the colour.
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
 - Every payment has a Description box next to the image buttons. It is required: the image cannot be
   uploaded until the description is written. Whatever is left in the box is saved (also when you leave the box
@@ -141,7 +143,8 @@ CORS is already enabled in the backend.
 | --- | --- | --- |
 | GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
 | POST | `/api/payments` | Add one payment `{name, amount, date}`. Also writes it into the stored Excel file of its month |
-| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed`, `cancelled`, `need_to_come` or `extra_paid` or `part_paid` (`extra_paid` also needs `extra_amount`, `part_paid` needs `paid_amount`, less than the amount). Also colours the payment in the stored Excel file |
+| PATCH | `/api/payments/{id}/status` | Set `pending`, `paid`, `delayed` or `cancelled`. Also colours the payment in the stored Excel file |
+| PUT | `/api/payments/{id}/extra/{kind}` | Set (`{"amount": 13000}`) or clear (`{"amount": null}`) `awaiting`, `we_paid` or `part_pending`. Not part of any total |
 | PUT | `/api/payments/{id}/description` | Save the required description (also written into the stored Excel files) |
 | DELETE | `/api/payments/{id}` | Remove a payment. Also removes it from the stored Excel files |
 | POST | `/api/parse-file` | Upload .csv / .tsv / .txt / .xlsx / .xlsm / .xls / .ods / .docx / .pdf (form field `file`), returns the rows found as text. Saves nothing |

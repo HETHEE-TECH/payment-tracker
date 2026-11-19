@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=23">
+  <link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
   <div class="wrap">
@@ -103,9 +103,9 @@
           <option value="paid">Paid</option>
           <option value="delayed">Delayed</option>
           <option value="cancelled">Cancelled</option>
-          <option value="need_to_come">Income need to come</option>
-          <option value="extra_paid">Extra paid</option>
-          <option value="part_paid">Part paid</option>
+          <option value="awaiting">Awaiting income</option>
+          <option value="we_paid">We paid</option>
+          <option value="part_pending">Part paid pending</option>
         </select>
       </div>
       <div class="field">
@@ -129,36 +129,21 @@
     <div id="list" class="list"></div>
   </div>
 
-  <dialog id="part-dialog" class="small-dialog" aria-labelledby="part-title">
-    <form id="part-form" novalidate>
-      <h2 id="part-title">Part paid</h2>
-      <p class="hint" id="part-name"></p>
+  <dialog id="amount-dialog" class="small-dialog" aria-labelledby="amount-title">
+    <form id="amount-form" novalidate>
+      <h2 id="amount-title"></h2>
+      <p class="hint" id="amount-name"></p>
+      <p class="hint" id="amount-desc"></p>
       <div class="field">
-        <label for="part-amount">Amount paid so far</label>
-        <input id="part-amount" type="number" inputmode="decimal" min="0" step="any">
+        <label for="amount-input" id="amount-label"></label>
+        <input id="amount-input" type="number" inputmode="decimal" min="0" step="any">
       </div>
-      <p class="hint" id="part-balance" aria-live="polite"></p>
-      <p class="error" id="part-error" role="alert"></p>
+      <p class="hint" id="amount-hint" aria-live="polite"></p>
+      <p class="error" id="amount-error" role="alert"></p>
       <div class="row-actions">
         <button type="submit" class="btn">Save</button>
-        <button type="button" class="btn" id="part-cancel">Cancel</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="extra-dialog" class="small-dialog" aria-labelledby="extra-title">
-    <form id="extra-form" novalidate>
-      <h2 id="extra-title">Extra paid</h2>
-      <p class="hint" id="extra-name"></p>
-      <p class="hint" id="extra-desc"></p>
-      <div class="field">
-        <label for="extra-amount">Extra amount paid</label>
-        <input id="extra-amount" type="number" inputmode="decimal" min="0" step="any">
-      </div>
-      <p class="error" id="extra-error" role="alert"></p>
-      <div class="row-actions">
-        <button type="submit" class="btn">Save</button>
-        <button type="button" class="btn" id="extra-cancel">Cancel</button>
+        <button type="button" class="btn" id="amount-clear">Remove amount</button>
+        <button type="button" class="btn" id="amount-cancel">Cancel</button>
       </div>
     </form>
   </dialog>
@@ -180,6 +165,6 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=23"></script>
+  <script src="script.js?v=24"></script>
 </body>
 </html>

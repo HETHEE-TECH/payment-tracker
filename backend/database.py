@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS payments (
     new_date TEXT,                        -- set when status is 'delayed'
     description TEXT,                     -- comment written by the user (also goes into the Excel sheet)
     extra_amount REAL,                    -- the extra paid, when the status is 'extra_paid'
-    paid_amount REAL                      -- how much was paid so far, when the status is 'part_paid'
+    paid_amount REAL,                     -- no longer used (older version)
+    awaiting_amount REAL,                 -- Awaiting income: amount still to come in (not part of the totals)
+    we_paid_amount REAL,                  -- We paid: amount we paid (not part of the totals)
+    part_pending_amount REAL              -- Part paid pending: the pending part of a part payment (not part of the totals)
 )
 """, """
 -- Every file you import (CSV, Excel, PDF) is kept here, so it is not lost.
@@ -49,6 +52,13 @@ CREATE TABLE IF NOT EXISTS payment_images (
 )
 """]
 
+# Payments saved with the statuses of an earlier version become a normal status plus an amount.
+LEGACY_STATUS_MIGRATION = [
+    "UPDATE payments SET awaiting_amount = amount, status = 'pending' WHERE status = 'need_to_come'",
+    "UPDATE payments SET we_paid_amount = extra_amount, status = 'paid' WHERE status = 'extra_paid'",
+    "UPDATE payments SET part_pending_amount = amount - COALESCE(paid_amount, 0), status = 'pending' WHERE status = 'part_paid'",
+]
+
 POSTGRES_SCHEMAS = ["""
 CREATE TABLE IF NOT EXISTS payments (
     id       SERIAL PRIMARY KEY,
@@ -59,7 +69,10 @@ CREATE TABLE IF NOT EXISTS payments (
     new_date TEXT,                         -- set when status is 'delayed'
     description TEXT,                      -- comment written by the user (also goes into the Excel sheet)
     extra_amount DOUBLE PRECISION,         -- the extra paid, when the status is 'extra_paid'
-    paid_amount DOUBLE PRECISION           -- how much was paid so far, when the status is 'part_paid'
+    paid_amount DOUBLE PRECISION,          -- no longer used (older version)
+    awaiting_amount DOUBLE PRECISION,      -- Awaiting income: amount still to come in (not part of the totals)
+    we_paid_amount DOUBLE PRECISION,       -- We paid: amount we paid (not part of the totals)
+    part_pending_amount DOUBLE PRECISION   -- Part paid pending: the pending part of a part payment (not part of the totals)
 )
 """, """
 CREATE TABLE IF NOT EXISTS files (
@@ -146,6 +159,10 @@ def init_db() -> None:
         raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS description TEXT")
         raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS extra_amount DOUBLE PRECISION")
         raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS paid_amount DOUBLE PRECISION")
+        for column in ("awaiting_amount", "we_paid_amount", "part_pending_amount"):
+            raw.execute(f"ALTER TABLE payments ADD COLUMN IF NOT EXISTS {column} DOUBLE PRECISION")
+        for statement in LEGACY_STATUS_MIGRATION:
+            raw.execute(statement)
         raw.commit()
         raw.close()
         return
@@ -159,6 +176,11 @@ def init_db() -> None:
         conn.execute("ALTER TABLE payments ADD COLUMN extra_amount REAL")
     if "paid_amount" not in columns:
         conn.execute("ALTER TABLE payments ADD COLUMN paid_amount REAL")
+    for column in ("awaiting_amount", "we_paid_amount", "part_pending_amount"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE payments ADD COLUMN {column} REAL")
+    for statement in LEGACY_STATUS_MIGRATION:
+        conn.execute(statement)
     conn.commit()
     conn.close()
 

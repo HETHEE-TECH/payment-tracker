@@ -2,8 +2,16 @@
 // change this to "http://127.0.0.1:8000/api".
 const API = "/api";
 
-const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled", need_to_come: "Income need to come", extra_paid: "Extra paid", part_paid: "Part paid" };
-const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad", need_to_come: "come", extra_paid: "extra", part_paid: "part" };
+const STATUS_LABEL = { pending: "Pending", paid: "Paid", delayed: "Delayed", cancelled: "Cancelled" };
+const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad" };
+
+// Three amounts that can be added to a payment next to its status. They are typed in, and they are not
+// part of the Total, Paid, Pending, Delayed or Cancelled numbers: each shows only in its own card.
+const EXTRA_KINDS = {
+  awaiting: { field: "awaiting_amount", short: "Awaiting income", label: "Amount still to come in", cls: "come", words: /await|come|balance|pending|due/i },
+  we_paid: { field: "we_paid_amount", short: "We paid", label: "Amount we paid", cls: "extra", words: /paid|extra/i },
+  part_pending: { field: "part_pending_amount", short: "Part paid pending", label: "Pending amount (the part still to pay)", cls: "part", words: /pending|balance|remain|left|due/i },
+};
 
 const pad = (n) => String(n).padStart(2, "0");
 const today = (() => {
@@ -69,7 +77,6 @@ const DASH_STATUSES = [
   ["pending", "Pending", "pend", "--pend-solid"],
   ["delayed", "Delayed", "warn", "--warn-solid"],
   ["cancelled", "Cancelled", "bad", "--bad-solid"],
-  ["need_to_come", "Income need to come", "come", "--come-solid"],
 ];
 
 // What the dashboard is counting, from the filters that are set (for example "November 2026 · Paid").
@@ -78,7 +85,7 @@ function scopeLabel() {
   const date = [filters.day ? Number(filters.day) : "", filters.month ? MONTH_NAMES[Number(filters.month) - 1] : "", filters.year]
     .filter(Boolean).join(" ");
   if (date) parts.push(date);
-  if (filters.status) parts.push(STATUS_LABEL[filters.status] || filters.status);
+  if (filters.status) parts.push(STATUS_LABEL[filters.status] || (EXTRA_KINDS[filters.status] || {}).short || filters.status);
   if (filters.q.trim()) parts.push(`\u201c${filters.q.trim()}\u201d`);
   return parts.length ? parts.join(" \u00b7 ") : "All payments";
 }
@@ -98,10 +105,12 @@ function renderSummary(s) {
     `<div class="card"><span class="k"><span class="dot ${dot}"></span>${label}</span>` +
     `<span class="v num">${money(s[key].amount)}</span>` +
     `<span class="c">${count(s[key].count)} \u00b7 ${Math.round(pct(s[key]))}%</span></div>`
-  ).join("") +
-    `<div class="card"><span class="k"><span class="dot extra"></span>Extra paid</span>` +
-    `<span class="v num">${money(s.extra_paid.amount)}</span>` +
-    `<span class="c">${count(s.extra_paid.count)} \u00b7 on top of the total</span></div>`;
+  ).join("") + Object.values(EXTRA_KINDS).map((kind) => {
+    const part = s.extras[kind.field];
+    return `<div class="card"><span class="k"><span class="dot ${kind.cls}"></span>${kind.short}</span>` +
+      `<span class="v num">${money(part.amount)}</span>` +
+      `<span class="c">${count(part.count)} \u00b7 not in the total</span></div>`;
+  }).join("");
   // Donut and bar: one slice per status, sized by amount.
   let at = 0;
   const stops = [];
@@ -122,19 +131,17 @@ function renderMonths() {
   const q = filters.q.trim().toLowerCase();
   const months = new Map();
   allItems.forEach((i) => {
-    if ((q && !i.name.toLowerCase().includes(q)) || (filters.status && i.status !== filters.status)) return;
+    if ((q && !i.name.toLowerCase().includes(q)) || !matchesStatus(i, filters.status)) return;
     const key = i.date.slice(0, 7);
-    if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0, need_to_come: 0 });
+    if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
     const m = months.get(key);
-    m.total += i.amount; m.count++;
-    if (i.status === "part_paid") { m.paid += i.paid_amount || 0; m.pending += i.amount - (i.paid_amount || 0); }
-    else m[i.status === "extra_paid" ? "paid" : i.status] += i.amount;
+    m.total += i.amount; m.count++; m[i.status] += i.amount;
   });
   const rows = [...months.values()].sort((a, b) => (a.key < b.key ? 1 : -1)); // newest month first
   const box = document.getElementById("dash-months");
   if (!rows.length) { box.innerHTML = `<div class="empty">No payments yet.</div>`; return; }
   const biggest = Math.max(...rows.map((m) => m.total)) || 1;
-  const all = { total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0, need_to_come: 0 };
+  const all = { total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 };
   rows.forEach((m) => { for (const k in all) all[k] += m[k]; });
   const none = !filters.year && !filters.month && !filters.day;
   const sum = DASH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${all.total ? (all[key] / all.total) * 100 : 0}%"></span>`).join("");
@@ -177,19 +184,23 @@ function renderList(items) {
     const rows = g.map((i) => {
       let sub = "";
       if (i.status === "pending" && i.date < today) sub = "Past due date";
-      if (i.status === "extra_paid" && i.extra_amount) sub = `Extra paid ${money(i.extra_amount)}`;
-      if (i.status === "part_paid") sub = `Paid ${money(i.paid_amount || 0)} \u00b7 Balance ${money(i.amount - (i.paid_amount || 0))}`;
-      const btn = (act, label, cls) => `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button">${label}</button>`;
-      let acts = "";
-      if (i.status === "pending") {
-        acts += btn("paid", "Paid", "ok") + btn("delayed", "Delayed", "warn") + btn("cancelled", "Cancel", "bad") + btn("need_to_come", "Income need to come", "come") + btn("extra_paid", "Extra paid", "extra") + btn("part_paid", "Part paid", "part");
-      } else {
-        acts += btn("pending", "Undo", "");
-        if (i.status === "extra_paid") acts += btn("extra_edit", "Change extra", "extra");
-        if (i.status === "part_paid") acts += btn("part_edit", "Change paid", "part") + btn("paid", "Paid now", "ok");
-        if (i.status === "delayed" || i.status === "need_to_come") acts += btn("paid", "Paid now", "ok");
-      }
-      acts += btn("remove", "Remove", "");
+      const btn = (act, label, cls, pressed) =>
+        `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button" aria-pressed="${pressed}">${pressed ? '<span aria-hidden="true">\u2713 </span>' : ""}${label}</button>`;
+      // Status: one of Paid, Delayed, Cancel (click it again to undo). Also: any of the three amounts, together with the status.
+      const statusBtn = (key, label, cls) => btn(i.status === key ? "pending" : key, label, cls, i.status === key);
+      const extraBtn = (kindKey) => {
+        const kind = EXTRA_KINDS[kindKey];
+        const value = i[kind.field];
+        return btn(`extra:${kindKey}`, value ? `${kind.short} ${money(value)}` : kind.short, kind.cls, Boolean(value));
+      };
+      const acts = `<span class="grp" role="group" aria-label="Status">${statusBtn("paid", "Paid", "ok")}${statusBtn("delayed", "Delayed", "warn")}${statusBtn("cancelled", "Cancel", "bad")}</span>` +
+        `<span class="grp" role="group" aria-label="Also add an amount">${extraBtn("awaiting")}${extraBtn("we_paid")}${extraBtn("part_pending")}</span>` +
+        `<button class="btn small" data-act="remove" data-id="${i.id}" type="button">Remove</button>`;
+      const chips = Object.values(EXTRA_KINDS).filter((kind) => i[kind.field])
+        .map((kind) => `<span class="chip ${kind.cls}">${kind.short} ${money(i[kind.field])}</span>`).join("");
+      // 7,000 paid and 13,000 awaiting: the original amount was 20,000.
+      const original = i.awaiting_amount
+        ? `<div class="original">Original amount ${money(i.amount + i.awaiting_amount)} = ${money(i.amount)} + ${money(i.awaiting_amount)} awaiting income</div>` : "";
       const images = i.images || [];
       const picker = (label) =>
         `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" multiple data-img="${i.id}"></label>`;
@@ -200,16 +211,17 @@ function renderList(items) {
           `<button type="button" class="thumbx" data-act="img-del" data-id="${imageId}" aria-label="Remove image ${n + 1} of ${esc(i.name)}">\u00d7</button></span>`;
       }).join("");
       const desc = i.description || "";
-      acts += `<span class="descctl"><input class="descinput${desc ? "" : " need"}" type="text" maxlength="500" ` +
-        `placeholder="Description (required)" autocomplete="off" value="${esc(desc)}" data-desc="${i.id}" aria-label="Description for ${esc(i.name)}" required>` +
-        `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button></span>`;
-      acts += `<span class="imgctl">${thumbs}` +
-        (images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")) + `</span>`;
+      const descRow = `<div class="descrow"><div class="descfield"><label class="desclabel" for="desc-${i.id}">Description</label>` +
+        `<input id="desc-${i.id}" class="descinput${desc ? "" : " need"}" type="text" maxlength="500" ` +
+        `placeholder="Write the description (required)" autocomplete="off" value="${esc(desc)}" data-desc="${i.id}" required></div>` +
+        `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button>` +
+        `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")}</span></div>`;
       return `<div class="item ${STATUS_CLASS[i.status]}${isToday ? " todayrow" : ""}">` +
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
         `<span class="pill">${STATUS_LABEL[i.status]}</span>` +
-        `<div class="acts">${acts}</div></div>`;
+        (chips || original ? `<div class="tags">${chips}${original}</div>` : "") +
+        `<div class="acts">${acts}</div>${descRow}</div>`;
     }).join("");
     return monthHead + `<div class="group"><div class="ghead"><h2>${esc(fmtDay(d))}${isToday ? ' <span class="tag">Today</span>' : ""}</h2>` +
       `<span class="gt num">${money(sum)}</span></div>${rows}</div>`;
@@ -218,24 +230,24 @@ function renderList(items) {
 
 function summarize(items) {
   const blank = () => ({ count: 0, amount: 0 });
-  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), need_to_come: blank(), extra_paid: blank(), total: blank(), to_pay: blank() };
+  const s = { pending: blank(), paid: blank(), delayed: blank(), cancelled: blank(), total: blank(), to_pay: blank(), extras: {} };
+  Object.values(EXTRA_KINDS).forEach((kind) => { s.extras[kind.field] = blank(); });
   items.forEach((i) => {
-    if (i.status === "part_paid") { // the paid part counts as paid, what is left is pending and still to pay
-      const paid = i.paid_amount || 0;
-      const left = Math.max(0, i.amount - paid);
-      s.paid.count++; s.paid.amount += paid;
-      s.pending.count++; s.pending.amount += left;
-      s.to_pay.count++; s.to_pay.amount += left;
-      s.total.count++; s.total.amount += i.amount;
-      return;
-    }
-    const key = i.status === "extra_paid" ? "paid" : i.status; // an extra-paid payment's own amount counts as paid
-    s[key].count++; s[key].amount += i.amount;
-    if (i.status === "extra_paid") { s.extra_paid.count++; s.extra_paid.amount += i.extra_amount || 0; } // the extra is on top, not in the total
+    s[i.status].count++; s[i.status].amount += i.amount;
     s.total.count++; s.total.amount += i.amount;
     if (i.status === "pending" || i.status === "delayed") { s.to_pay.count++; s.to_pay.amount += i.amount; }
+    Object.values(EXTRA_KINDS).forEach((kind) => { // typed-in amounts: only in their own card, never in the numbers above
+      if (i[kind.field]) { s.extras[kind.field].count++; s.extras[kind.field].amount += i[kind.field]; }
+    });
   });
   return s;
+}
+
+// A status filter is one of the four statuses, or one of the three typed-in amounts (payments that have it).
+function matchesStatus(item, wanted) {
+  if (!wanted) return true;
+  if (EXTRA_KINDS[wanted]) return Boolean(item[EXTRA_KINDS[wanted].field]);
+  return item.status === wanted;
 }
 
 let allItems = [];
@@ -271,7 +283,7 @@ function filteredItems() {
   const q = filters.q.trim().toLowerCase();
   return allItems.filter((i) =>
     (!q || i.name.toLowerCase().includes(q)) &&
-    (!filters.status || i.status === filters.status) &&
+    matchesStatus(i, filters.status) &&
     (!filters.year || i.date.slice(0, 4) === filters.year) &&
     (!filters.month || i.date.slice(5, 7) === filters.month) &&
     (!filters.day || i.date.slice(8, 10) === filters.day)
@@ -341,12 +353,8 @@ document.getElementById("list").addEventListener("click", async (e) => {
   const id = button.dataset.id;
   const act = button.dataset.act;
   try {
-    if (act === "extra_paid" || act === "extra_edit") {
-      openExtra(id); // asks for the extra amount first; the status is saved from the dialog
-      return;
-    }
-    if (act === "part_paid" || act === "part_edit") {
-      openPart(id); // asks how much was paid first
+    if (act.startsWith("extra:")) {
+      openAmount(act.slice(6), id); // asks for the amount in a small window
       return;
     }
     if (act === "desc-save") {
@@ -524,65 +532,14 @@ document.getElementById("filelist").addEventListener("click", async (e) => {
   try { await api("/files/" + b.dataset.fileDel, { method: "DELETE" }); loadFiles(); } catch (err) { showError(err.message); }
 });
 
-// ---------- part paid: how much of the amount was paid so far ----------
-const partDialog = document.getElementById("part-dialog");
-const partInput = document.getElementById("part-amount");
-let partFor = null;
+// ---------- Awaiting income, We paid, Part paid pending: type the amount in a small window ----------
+const amountDialog = document.getElementById("amount-dialog");
+const amountInput = document.getElementById("amount-input");
+let amountFor = null; // { id, kind }
 
-function showBalance() {
-  const item = allItems.find((x) => x.id === partFor);
-  const value = Number(partInput.value);
-  document.getElementById("part-balance").textContent =
-    item && value > 0 && value < item.amount ? `Balance still to pay: ${money(item.amount - value)}` : "";
-}
-
-function openPart(paymentId) {
-  const item = allItems.find((x) => String(x.id) === String(paymentId));
-  if (!item) return;
-  partFor = item.id;
-  document.getElementById("part-name").textContent = `${item.name} \u00b7 full amount ${money(item.amount)}`;
-  partInput.value = item.paid_amount || "";
-  document.getElementById("part-error").textContent = "";
-  showBalance();
-  partDialog.showModal();
-  partInput.focus();
-  partInput.select();
-}
-
-partInput.addEventListener("input", showBalance);
-document.getElementById("part-cancel").addEventListener("click", () => partDialog.close());
-document.getElementById("part-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const item = allItems.find((x) => x.id === partFor);
-  const value = Number(partInput.value);
-  const error = document.getElementById("part-error");
-  if (!(value > 0)) {
-    error.textContent = "Enter how much was paid, more than 0.";
-    partInput.focus();
-    return;
-  }
-  if (item && value >= item.amount) {
-    error.textContent = `The paid amount must be less than ${money(item.amount)}. If everything was paid, close this and use Paid.`;
-    partInput.focus();
-    return;
-  }
-  try {
-    reportSync(await api(`/payments/${partFor}/status`, { method: "PATCH", body: JSON.stringify({ status: "part_paid", paid_amount: value }) }));
-    partDialog.close();
-    await refresh();
-  } catch (err) {
-    error.textContent = err.message;
-  }
-});
-
-// ---------- extra paid: the extra amount comes from the description, and is confirmed here ----------
-const extraDialog = document.getElementById("extra-dialog");
-const extraInput = document.getElementById("extra-amount");
-let extraFor = null;
-
-// The amount in a description such as "extra 500 paid" or "Rs.1,500 extra": the number closest to the word
-// "extra", or the only number when the word is missing. Nothing when it cannot tell.
-function guessExtra(text) {
+// The amount in a description such as "extra 500 paid" or "Rs.1,500 balance": the number closest to one of the
+// words that belong to the kind. Nothing when no such word is there, so a wrong number is never filled in.
+function guessAmount(text, words) {
   if (!text) return null;
   const found = [];
   const re = /(?:\u20b9|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d+)?)/gi;
@@ -592,41 +549,62 @@ function guessExtra(text) {
     if (n > 0) found.push({ n, at: m.index });
   }
   if (!found.length) return null;
-  const word = /extra/i.exec(text);
-  if (word) return found.sort((a, b) => Math.abs(a.at - word.index) - Math.abs(b.at - word.index))[0].n;
-  return found.length === 1 ? found[0].n : null;
+  const word = words.exec(text);
+  return word ? found.sort((a, b) => Math.abs(a.at - word.index) - Math.abs(b.at - word.index))[0].n : null;
 }
 
-function openExtra(paymentId) {
-  const item = allItems.find((x) => String(x.id) === String(paymentId));
-  if (!item) return;
-  extraFor = item.id;
-  document.getElementById("extra-name").textContent = `${item.name} \u00b7 ${money(item.amount)}`;
-  document.getElementById("extra-desc").textContent = item.description ? `Description: ${item.description}` : "No description yet.";
-  extraInput.value = item.extra_amount || guessExtra(item.description) || "";
-  document.getElementById("extra-error").textContent = "";
-  extraDialog.showModal();
-  extraInput.focus();
-  extraInput.select();
-}
-
-document.getElementById("extra-cancel").addEventListener("click", () => extraDialog.close());
-document.getElementById("extra-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const value = Number(extraInput.value);
-  const error = document.getElementById("extra-error");
-  if (!(value > 0)) {
-    error.textContent = "Enter the extra amount, more than 0.";
-    extraInput.focus();
-    return;
+function amountHint() {
+  const item = allItems.find((x) => x.id === amountFor.id);
+  const value = Number(amountInput.value);
+  let text = "";
+  if (item && value > 0) {
+    if (amountFor.kind === "awaiting") text = `Original amount: ${money(item.amount)} + ${money(value)} = ${money(item.amount + value)}`;
+    if (amountFor.kind === "part_pending" && value < item.amount) text = `Paid so far: ${money(item.amount - value)}`;
   }
+  document.getElementById("amount-hint").textContent = text;
+}
+
+function openAmount(kind, paymentId) {
+  const item = allItems.find((x) => String(x.id) === String(paymentId));
+  const info = EXTRA_KINDS[kind];
+  if (!item || !info) return;
+  amountFor = { id: item.id, kind };
+  document.getElementById("amount-title").textContent = info.short;
+  document.getElementById("amount-name").textContent = `${item.name} \u00b7 amount ${money(item.amount)}`;
+  document.getElementById("amount-desc").textContent = item.description ? `Description: ${item.description}` : "No description yet.";
+  document.getElementById("amount-label").textContent = info.label;
+  amountInput.value = item[info.field] || guessAmount(item.description, info.words) || "";
+  document.getElementById("amount-clear").hidden = !item[info.field];
+  document.getElementById("amount-error").textContent = "";
+  amountHint();
+  amountDialog.showModal();
+  amountInput.focus();
+  amountInput.select();
+}
+
+async function saveAmount(amount) {
+  const error = document.getElementById("amount-error");
   try {
-    reportSync(await api(`/payments/${extraFor}/status`, { method: "PATCH", body: JSON.stringify({ status: "extra_paid", extra_amount: value }) }));
-    extraDialog.close();
+    reportSync(await api(`/payments/${amountFor.id}/extra/${amountFor.kind}`, { method: "PUT", body: JSON.stringify({ amount }) }));
+    amountDialog.close();
     await refresh();
   } catch (err) {
     error.textContent = err.message;
   }
+}
+
+amountInput.addEventListener("input", amountHint);
+document.getElementById("amount-cancel").addEventListener("click", () => amountDialog.close());
+document.getElementById("amount-clear").addEventListener("click", () => saveAmount(null)); // takes the amount away again
+document.getElementById("amount-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const value = Number(amountInput.value);
+  if (!(value > 0)) {
+    document.getElementById("amount-error").textContent = "Enter the amount, more than 0.";
+    amountInput.focus();
+    return;
+  }
+  saveAmount(value);
 });
 
 // ---------- image viewer: all images of a payment, one after the other ----------

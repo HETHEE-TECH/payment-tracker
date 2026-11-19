@@ -660,3 +660,19 @@ def parse_docx(data: bytes) -> Tuple[List[Payment], int]:
     if not table_rows and not any(line.strip() for line in lines):
         raise ValueError("No text found in this Word file.")
     return _payments_from_tables_and_lines(table_rows, lines)
+
+
+# ---------- the colour a payment gets in an Excel sheet ----------
+
+def excel_status(payment: dict) -> str:
+    """Paid, delayed and cancelled keep their own colour. A pending payment that also has an amount in
+    Awaiting income, We paid or Part paid pending is coloured by the first of those."""
+    if payment.get("status") in ("paid", "delayed", "cancelled"):
+        return payment["status"]
+    if payment.get("awaiting_amount"):
+        return "awaiting_income"
+    if payment.get("we_paid_amount"):
+        return "we_paid"
+    if payment.get("part_pending_amount"):
+        return "part_pending"
+    return payment.get("status") or "pending"

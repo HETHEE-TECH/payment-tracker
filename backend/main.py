@@ -16,11 +16,12 @@ from fastapi.staticfiles import StaticFiles
 
 from calendar_export import build_calendar_workbook
 from database import USING_POSTGRES, get_db, init_db
-from schemas import DescriptionUpdate, ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
+from schemas import AmountUpdate, DescriptionUpdate, ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
     decode_text,
     duplicate_key,
+    excel_status,
     next_day,
     parse_docx,
     parse_import_text,
@@ -113,6 +114,7 @@ _SYNC_LOCK = threading.Lock()  # one writer at a time, so two people never overw
 
 
 def sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
+    payment = {**payment, "status": excel_status(payment)}  # the colour: the status, or the amount tag
     with _SYNC_LOCK:
         return _sync_stored_excels(db, payment, add_if_missing)
 
@@ -177,10 +179,13 @@ def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
             month_rows = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT name, amount, date, status, description FROM payments WHERE date LIKE ? ORDER BY date, name",
+                    "SELECT name, amount, date, status, description, awaiting_amount, we_paid_amount, "
+                    "part_pending_amount FROM payments WHERE date LIKE ? ORDER BY date, name",
                     (month_key + "-%",),
                 ).fetchall()
             ]
+            for month_row in month_rows:
+                month_row["status"] = excel_status(month_row)
             if month_rows:
                 data = build_calendar_workbook(month_rows)
                 filename = f"Payments {month_key}.xlsx"
@@ -252,28 +257,29 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
         raise HTTPException(status_code=404, detail="Payment not found")
     # Delayed means: today's payment moves to the next day.
     new_date = next_day(row["date"]) if payload.status == "delayed" else None
-    extra = None
-    if payload.status == "extra_paid":  # the extra amount is kept only while the status is extra_paid
-        if payload.extra_amount is None:
-            raise HTTPException(status_code=422, detail="Enter the extra amount that was paid.")
-        extra = round(payload.extra_amount, 2)
-    paid = None
-    if payload.status == "part_paid":  # part of the amount was paid; the rest is still to pay
-        if payload.paid_amount is None:
-            raise HTTPException(status_code=422, detail="Enter how much was paid.")
-        if payload.paid_amount >= row["amount"]:
-            raise HTTPException(
-                status_code=422,
-                detail="The paid amount must be less than the full amount. If everything was paid, use Paid.",
-            )
-        paid = round(payload.paid_amount, 2)
-    db.execute(
-        "UPDATE payments SET status = ?, new_date = ?, extra_amount = ?, paid_amount = ? WHERE id = ?",
-        (payload.status, new_date, extra, paid, payment_id),
-    )
+    db.execute("UPDATE payments SET status = ?, new_date = ? WHERE id = ?", (payload.status, new_date, payment_id))
     db.commit()
     updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
-    return {**updated, **sync_stored_excels(db, updated, add_if_missing=payload.status != "pending")}
+    return {**updated, **sync_stored_excels(db, updated, add_if_missing=excel_status(updated) != "pending")}
+
+
+# The three amounts that can be added to a payment next to its status. They are not part of any total.
+EXTRA_COLUMNS = {"awaiting": "awaiting_amount", "we_paid": "we_paid_amount", "part_pending": "part_pending_amount"}
+
+
+@app.put("/api/payments/{payment_id}/extra/{kind}", response_model=PaymentOut)
+def set_extra_amount(payment_id: int, kind: str, payload: AmountUpdate, db: sqlite3.Connection = Depends(get_db)):
+    """Sets (or, with an empty amount, clears) Awaiting income, We paid or Part paid pending of a payment."""
+    column = EXTRA_COLUMNS.get(kind)
+    if column is None:
+        raise HTTPException(status_code=404, detail="Unknown kind: use awaiting, we_paid or part_pending")
+    if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    value = round(payload.amount, 2) if payload.amount is not None else None
+    db.execute(f"UPDATE payments SET {column} = ? WHERE id = ?", (value, payment_id))  # the column comes from the fixed list above
+    db.commit()
+    updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+    return {**updated, **sync_stored_excels(db, updated, add_if_missing=excel_status(updated) != "pending")}
 
 
 @app.put("/api/payments/{payment_id}/description", response_model=PaymentOut)
@@ -543,38 +549,32 @@ def list_months(db: sqlite3.Connection = Depends(get_db)):
 @app.get("/api/summary")
 def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
     check_month(month)
-    result = {
-        status: {"count": 0, "amount": 0.0}
-        for status in ("pending", "paid", "delayed", "cancelled", "need_to_come")
-    }
-    extra = {"count": 0, "amount": 0.0}  # extra paid: on top of the amounts, so not part of the total
+    result = {status: {"count": 0, "amount": 0.0} for status in ("pending", "paid", "delayed", "cancelled")}
+    total = {"count": 0, "amount": 0.0}
     rows = db.execute(
-        "SELECT status, COUNT(*) AS c, SUM(amount) AS s, SUM(extra_amount) AS x, SUM(paid_amount) AS p "
-        "FROM payments WHERE date LIKE ? GROUP BY status",
+        "SELECT status, COUNT(*) AS c, SUM(amount) AS s FROM payments WHERE date LIKE ? GROUP BY status",
         (month + "-%",),
     ).fetchall()
-    total = {"count": 0, "amount": 0.0}
     for row in rows:
+        result[row["status"]]["count"] += row["c"]
+        result[row["status"]]["amount"] += row["s"] or 0.0
         total["count"] += row["c"]
         total["amount"] += row["s"] or 0.0
-        if row["status"] == "extra_paid":  # its own amount counts as paid, the extra is listed separately
-            result["paid"]["count"] += row["c"]
-            result["paid"]["amount"] += row["s"] or 0.0
-            extra = {"count": row["c"], "amount": row["x"] or 0.0}
-        elif row["status"] == "part_paid":  # the paid part counts as paid, what is left as pending
-            result["paid"]["count"] += row["c"]
-            result["paid"]["amount"] += row["p"] or 0.0
-            result["pending"]["count"] += row["c"]
-            result["pending"]["amount"] += (row["s"] or 0.0) - (row["p"] or 0.0)
-        else:  # add to the bucket: an extra paid or part paid row may already have put something in it
-            result[row["status"]]["count"] += row["c"]
-            result[row["status"]]["amount"] += row["s"] or 0.0
     result["total"] = total
-    result["extra_paid"] = extra
     result["to_pay"] = {
         "count": result["pending"]["count"] + result["delayed"]["count"],
         "amount": result["pending"]["amount"] + result["delayed"]["amount"],
     }
+    # Awaiting income, We paid and Part paid pending: the amounts that were entered, kept out of the totals above.
+    extra = db.execute(
+        "SELECT COUNT(awaiting_amount) AS ac, SUM(awaiting_amount) AS a, COUNT(we_paid_amount) AS wc, "
+        "SUM(we_paid_amount) AS w, COUNT(part_pending_amount) AS pc, SUM(part_pending_amount) AS p "
+        "FROM payments WHERE date LIKE ?",
+        (month + "-%",),
+    ).fetchone()
+    result["awaiting_income"] = {"count": extra["ac"] or 0, "amount": extra["a"] or 0.0}
+    result["we_paid"] = {"count": extra["wc"] or 0, "amount": extra["w"] or 0.0}
+    result["part_pending"] = {"count": extra["pc"] or 0, "amount": extra["p"] or 0.0}
     return result
 
 
