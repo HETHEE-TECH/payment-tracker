@@ -98,7 +98,65 @@ function scopeLabel() {
   return parts.length ? parts.join(" \u00b7 ") : "All payments";
 }
 
+// ---------- pie chart ----------
+let lastSummary = null;
+let pieMode = "status";
+
+// One slice per entry: { label, amount, count, cssVar, dot }. Angles are drawn clockwise from 12 o'clock.
+function pieData(s) {
+  if (pieMode === "amounts") {
+    return Object.values(EXTRA_KINDS).map((kind) => ({
+      label: kind.short, amount: s.extras[kind.field].amount, count: s.extras[kind.field].count,
+      cssVar: { come: "--come-solid", extra: "--extra-solid", part: "--part-solid" }[kind.cls], dot: kind.cls,
+    }));
+  }
+  return DASH_STATUSES.map(([key, label, dot, cssVar]) => ({ label, amount: s.slices[key].amount, count: s.slices[key].count, cssVar, dot }));
+}
+
+function renderPie() {
+  if (!lastSummary) return;
+  const data = pieData(lastSummary);
+  const total = data.reduce((sum, d) => sum + d.amount, 0);
+  const point = (turn, r) => [r * Math.sin(turn * 2 * Math.PI), -r * Math.cos(turn * 2 * Math.PI)];
+  const text = (d) => `${d.label}: ${money(d.amount)} (${Math.round((d.amount / total) * 100)}%)`;
+  const shown = data.filter((d) => d.amount > 0);
+  let svg = "";
+  if (!total) {
+    svg = `<circle class="empty" r="1"></circle>`;
+  } else if (shown.length === 1) { // one slice is the whole circle
+    svg = `<circle r="1" style="fill:var(${shown[0].cssVar})"><title>${esc(text(shown[0]))}</title></circle>` +
+      `<text x="0" y="0">100%</text>`;
+  } else {
+    let from = 0;
+    shown.forEach((d) => {
+      const share = d.amount / total;
+      const [x0, y0] = point(from, 1);
+      const [x1, y1] = point(from + share, 1);
+      svg += `<path style="fill:var(${d.cssVar})" d="M 0 0 L ${x0} ${y0} A 1 1 0 ${share > 0.5 ? 1 : 0} 1 ${x1} ${y1} Z"><title>${esc(text(d))}</title></path>`;
+      if (share >= 0.06) { // the percentage inside the slice, when there is room
+        const [tx, ty] = point(from + share / 2, 0.64);
+        svg += `<text x="${tx}" y="${ty}">${Math.round(share * 100)}%</text>`;
+      }
+      from += share;
+    });
+  }
+  document.getElementById("pie").innerHTML = svg;
+  const count = (n) => `${n} ${n === 1 ? "payment" : "payments"}`;
+  document.getElementById("pie-legend").innerHTML = data.map((d) =>
+    `<li><span class="dot ${d.dot}"></span><span class="lname">${esc(d.label)}</span>` +
+    `<span class="lval num">${money(d.amount)}</span>` +
+    `<span class="lsub">${total ? Math.round((d.amount / total) * 100) : 0}% \u00b7 ${count(d.count)}</span></li>`).join("");
+  document.getElementById("pie-desc").textContent = total
+    ? "Pie chart. " + data.map(text).join(". ") + "."
+    : "Pie chart. There is nothing to show yet.";
+}
+
+document.querySelectorAll('input[name="pie-mode"]').forEach((radio) =>
+  radio.addEventListener("change", () => { pieMode = radio.value; renderPie(); }));
+
 function renderSummary(s) {
+  lastSummary = s;
+  renderPie();
   const base = s.total.amount;
   const pct = (part) => (base ? (part.amount / base) * 100 : 0);
   const sliceOf = (key) => s.slices[key];

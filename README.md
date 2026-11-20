@@ -127,6 +127,9 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   required before the first image is added. Click a thumbnail to open the viewer: the big image, previous and
   next buttons (or the left and right arrow keys, or a swipe on a phone), a strip of all the payment's
   images, Esc or Close to leave. Ctrl-click a thumbnail to open that image in a new tab.
+- The dashboard has a pie chart with a legend (amount, share and number of payments per slice). The switch above it shows
+  either the status split (Paid, Pending, Delayed, Cancelled: each payment in one slice) or the three typed-in amounts
+  (Awaiting income, We paid, Part paid pending). It follows the filters like the rest of the dashboard.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
 - Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.

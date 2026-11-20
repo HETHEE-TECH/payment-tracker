@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=25">
+  <link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
   <div class="wrap">
@@ -37,6 +37,20 @@
       </div>
       <div class="cards" id="dash-cards"></div>
       <div class="bar" id="bar" aria-hidden="true"></div>
+      <div class="piebox">
+        <div class="dash-head">
+          <h3 id="pie-title">Pie chart</h3>
+          <div class="seg" role="radiogroup" aria-label="What the pie chart shows">
+            <label><input type="radio" name="pie-mode" value="status" checked><span>Status</span></label>
+            <label><input type="radio" name="pie-mode" value="amounts"><span>Awaiting, We paid, Part pending</span></label>
+          </div>
+        </div>
+        <div class="piewrap">
+          <svg id="pie" viewBox="-1.05 -1.05 2.1 2.1" role="img" aria-labelledby="pie-title pie-desc"></svg>
+          <ul id="pie-legend" class="legend"></ul>
+        </div>
+        <p id="pie-desc" class="visually-hidden"></p>
+      </div>
       <div class="months">
         <div class="dash-head">
           <h3 id="months-title">Month-wise total</h3>
@@ -165,6 +179,6 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=25"></script>
+  <script src="script.js?v=26"></script>
 </body>
 </html>
