@@ -9,7 +9,7 @@ const STATUS_CLASS = { pending: "", paid: "ok", delayed: "warn", cancelled: "bad
 // Delayed means the delayed date (new_date) is set. A "delayed" status from an older version counts as delayed too.
 const isDelayed = (i) => Boolean(i.new_date) || i.status === "delayed";
 const mainStatus = (i) => (i.status === "delayed" ? "pending" : i.status);
-// The one place a payment takes in the donut, the bar and the month rows: paid or cancelled first, then delayed.
+// The one place a payment takes in the bar and the month rows: paid or cancelled first, then delayed.
 const slice = (i) => (mainStatus(i) !== "pending" ? mainStatus(i) : isDelayed(i) ? "delayed" : "pending");
 const rowClass = (i) => ({ paid: "ok", cancelled: "bad", delayed: "warn", pending: "" })[slice(i)];
 
@@ -80,7 +80,7 @@ function showError(message) {
 }
 
 // ---------- rendering ----------
-// Status order and colours used by the dashboard cards, the donut and the bar.
+// Status order and colours used by the dashboard cards, the bar and the pie chart.
 const DASH_STATUSES = [
   ["paid", "Paid", "ok", "--ok-solid"],
   ["pending", "Pending", "pend", "--pend-solid"],
@@ -237,7 +237,6 @@ function renderSummary(s) {
   text("dash-total-count", count(s.total.count));
   text("dash-topay", money(s.to_pay.amount));
   text("dash-topay-count", count(s.to_pay.count));
-  text("dash-paid-pct", `${Math.round(pct(s.slices.paid))}%`);
   document.getElementById("dash-cards").innerHTML = DASH_STATUSES.map(([key, label, dot]) =>
     `<div class="card"><span class="k"><span class="dot ${dot}"></span>${label}</span>` +
     `<span class="v num">${money(s[key].amount)}</span>` +
@@ -248,15 +247,7 @@ function renderSummary(s) {
       `<span class="v num">${money(part.amount)}</span>` +
       `<span class="c">${count(part.count)} \u00b7 not in the total</span></div>`;
   }).join("");
-  // Donut and bar: one slice per status, sized by amount.
-  let at = 0;
-  const stops = [];
-  DASH_STATUSES.forEach(([key, , , cssVar]) => {
-    const share = pct(sliceOf(key));
-    if (share > 0) stops.push(`var(${cssVar}) ${at}% ${at + share}%`);
-    at += share;
-  });
-  document.getElementById("dash-donut").style.background = stops.length ? `conic-gradient(${stops.join(", ")})` : "";
+  // Bar: one slice per status, sized by amount.
   document.getElementById("bar").innerHTML = DASH_STATUSES.map(([key, , dot]) =>
     `<span class="${dot}" style="width:${pct(sliceOf(key))}%"></span>`
   ).join("");
@@ -375,7 +366,7 @@ function summarize(items) {
     const status = mainStatus(i);
     const delayed = isDelayed(i);
     add(s.total, i);
-    add(s.slices[slice(i)], i); // each payment once: this feeds the donut and the bar
+    add(s.slices[slice(i)], i); // each payment once: this feeds the bar and the pie chart
     if (status === "paid" || status === "cancelled") add(s[status], i);
     else if (!delayed) add(s.pending, i);
     if (delayed) add(s.delayed, i); // Delayed counts every delayed payment, also one that is Paid or Cancelled as well
