@@ -674,6 +674,8 @@ def excel_status(payment: dict) -> str:
         return "delayed"
     if payment.get("awaiting_amount"):
         return "awaiting_income"
+    if payment.get("received_amount"):
+        return "received"
     if payment.get("we_paid_amount"):
         return "we_paid"
     if payment.get("part_pending_amount"):

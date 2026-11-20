@@ -23,6 +23,7 @@ class PaymentOut(BaseModel):
     awaiting_amount: Optional[float] = None  # Awaiting income: still to come in
     we_paid_amount: Optional[float] = None  # We paid
     part_pending_amount: Optional[float] = None  # Part paid pending
+    received_amount: Optional[float] = None  # Awaiting income received
     has_image: bool = False
     images: List[int] = []  # ids of the payment's images, oldest first
     files_updated: List[str] = []  # stored Excel files changed by this action

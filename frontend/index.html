@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=26">
+  <link rel="stylesheet" href="style.css?v=27">
 </head>
 <body>
   <div class="wrap">
@@ -40,9 +40,12 @@
       <div class="piebox">
         <div class="dash-head">
           <h3 id="pie-title">Pie chart</h3>
+          <div class="pie-tools">
+          <button type="button" class="btn small" id="pie-download">Download PNG</button>
           <div class="seg" role="radiogroup" aria-label="What the pie chart shows">
             <label><input type="radio" name="pie-mode" value="status" checked><span>Status</span></label>
-            <label><input type="radio" name="pie-mode" value="amounts"><span>Awaiting, We paid, Part pending</span></label>
+            <label><input type="radio" name="pie-mode" value="amounts"><span>Typed-in amounts</span></label>
+          </div>
           </div>
         </div>
         <div class="piewrap">
@@ -118,6 +121,7 @@
           <option value="delayed">Delayed</option>
           <option value="cancelled">Cancelled</option>
           <option value="awaiting">Awaiting income</option>
+          <option value="received">Awaiting income received</option>
           <option value="we_paid">We paid</option>
           <option value="part_pending">Part paid pending</option>
         </select>
@@ -179,6 +183,6 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=26"></script>
+  <script src="script.js?v=27"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ Builds a calendar-layout Excel file (used when a month has no stored Excel file 
     Apple 2400 note  Apple 11820 ...    <- item, amount and description under each day
     =SUM(...)                           <- total of each day, one block per week
 
-Every payment of the month is included. Paid is green, delayed is yellow, cancelled is red. A pending payment with an amount in Awaiting income is purple, We paid teal and Part paid pending orange.
+Every payment of the month is included. Paid is green, delayed is yellow, cancelled is red. A pending payment with an amount in Awaiting income is purple, Awaiting income received pink, We paid teal and Part paid pending orange.
 The file can be imported back into the app.
 """
 import io
@@ -22,7 +22,7 @@ from openpyxl.utils import get_column_letter
 MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December"]
 WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-STATUS_FILL = {"paid": "92D050", "delayed": "FFFF00", "cancelled": "FF7C80", "awaiting_income": "B4A7D6", "we_paid": "8ED1CE", "part_pending": "F9CB9C"}
+STATUS_FILL = {"paid": "92D050", "delayed": "FFFF00", "cancelled": "FF7C80", "awaiting_income": "B4A7D6", "received": "D5A6BD", "we_paid": "8ED1CE", "part_pending": "F9CB9C"}
 
 
 def _fill_sheet(ws, year: int, month: int, by_day) -> None:

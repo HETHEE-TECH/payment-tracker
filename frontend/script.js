@@ -17,6 +17,7 @@ const rowClass = (i) => ({ paid: "ok", cancelled: "bad", delayed: "warn", pendin
 // part of the Total, Paid, Pending, Delayed or Cancelled numbers: each shows only in its own card.
 const EXTRA_KINDS = {
   awaiting: { field: "awaiting_amount", short: "Awaiting income", label: "Amount still to come in", cls: "come", words: /await|come|balance|pending|due/i },
+  received: { field: "received_amount", short: "Awaiting income received", label: "Amount received", cls: "recv", words: /receiv|got|came|paid/i },
   we_paid: { field: "we_paid_amount", short: "We paid", label: "Amount we paid", cls: "extra", words: /paid|extra/i },
   part_pending: { field: "part_pending_amount", short: "Part paid pending", label: "Pending amount (the part still to pay)", cls: "part", words: /pending|balance|remain|left|due/i },
 };
@@ -107,7 +108,7 @@ function pieData(s) {
   if (pieMode === "amounts") {
     return Object.values(EXTRA_KINDS).map((kind) => ({
       label: kind.short, amount: s.extras[kind.field].amount, count: s.extras[kind.field].count,
-      cssVar: { come: "--come-solid", extra: "--extra-solid", part: "--part-solid" }[kind.cls], dot: kind.cls,
+      cssVar: { come: "--come-solid", recv: "--recv-solid", extra: "--extra-solid", part: "--part-solid" }[kind.cls], dot: kind.cls,
     }));
   }
   return DASH_STATUSES.map(([key, label, dot, cssVar]) => ({ label, amount: s.slices[key].amount, count: s.slices[key].count, cssVar, dot }));
@@ -150,6 +151,75 @@ function renderPie() {
     ? "Pie chart. " + data.map(text).join(". ") + "."
     : "Pie chart. There is nothing to show yet.";
 }
+
+// Draws the pie chart, its legend and what it covers on a canvas and saves it as a PNG picture.
+function downloadPie() {
+  if (!lastSummary) return;
+  const data = pieData(lastSummary);
+  const total = data.reduce((sum, d) => sum + d.amount, 0);
+  const scale = 2;
+  const width = 780;
+  const height = Math.max(380, 150 + data.length * 52);
+  const canvas = document.createElement("canvas");
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  const font = (size, weight = 400) => `${weight} ${size}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`;
+  const colour = (cssVar) => getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim() || "#888";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#1b2420";
+  ctx.font = font(22, 700);
+  ctx.fillText(pieMode === "amounts" ? "Pie chart: Typed-in amounts" : "Pie chart: Status", 28, 40);
+  ctx.fillStyle = "#5b6862";
+  ctx.font = font(14);
+  ctx.fillText(`${scopeLabel()} \u00b7 ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}`, 28, 64);
+  const cx = 190, cy = 220, radius = 120;
+  if (!total) {
+    ctx.fillStyle = "#dfe5e2";
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#5b6862"; ctx.font = font(15); ctx.textAlign = "center"; ctx.fillText("Nothing to show yet", cx, cy + 5); ctx.textAlign = "left";
+  } else {
+    let from = -Math.PI / 2; // 12 o'clock, clockwise
+    data.filter((d) => d.amount > 0).forEach((d) => {
+      const angle = (d.amount / total) * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, radius, from, from + angle); ctx.closePath();
+      ctx.fillStyle = colour(d.cssVar); ctx.fill();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
+      if (d.amount / total >= 0.06) {
+        const mid = from + angle / 2;
+        ctx.font = font(16, 700); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.lineWidth = 4; ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.fillStyle = "#ffffff";
+        const label = `${Math.round((d.amount / total) * 100)}%`;
+        ctx.strokeText(label, cx + Math.cos(mid) * radius * 0.64, cy + Math.sin(mid) * radius * 0.64);
+        ctx.fillText(label, cx + Math.cos(mid) * radius * 0.64, cy + Math.sin(mid) * radius * 0.64);
+        ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      }
+      from += angle;
+    });
+  }
+  const left = 360, right = width - 28;
+  data.forEach((d, n) => {
+    const y = 120 + n * 52;
+    ctx.fillStyle = colour(d.cssVar); ctx.fillRect(left, y - 13, 16, 16);
+    ctx.fillStyle = "#1b2420"; ctx.font = font(17, 600); ctx.fillText(d.label, left + 28, y);
+    ctx.textAlign = "right"; ctx.fillText(money(d.amount), right, y); ctx.textAlign = "left";
+    ctx.fillStyle = "#5b6862"; ctx.font = font(13);
+    ctx.fillText(`${total ? Math.round((d.amount / total) * 100) : 0}% \u00b7 ${d.count} ${d.count === 1 ? "payment" : "payments"}`, left + 28, y + 20);
+  });
+  canvas.toBlob((blob) => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `pie-chart-${pieMode}-${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    showNotice("Pie chart downloaded as a PNG picture.");
+  }, "image/png");
+}
+document.getElementById("pie-download").addEventListener("click", downloadPie);
 
 document.querySelectorAll('input[name="pie-mode"]').forEach((radio) =>
   radio.addEventListener("change", () => { pieMode = radio.value; renderPie(); }));
@@ -264,14 +334,11 @@ function renderList(items) {
         return btn(`extra:${kindKey}`, value ? `${kind.short} ${money(value)}` : kind.short, kind.cls, Boolean(value));
       };
       const acts = `<span class="grp" role="group" aria-label="Status">${statusBtn("paid", "Paid", "ok")}${delayedBtn}${statusBtn("cancelled", "Cancel", "bad")}</span>` +
-        `<span class="grp" role="group" aria-label="Also add an amount">${extraBtn("awaiting")}${extraBtn("we_paid")}${extraBtn("part_pending")}</span>` +
+        `<span class="grp" role="group" aria-label="Also add an amount">${Object.keys(EXTRA_KINDS).map(extraBtn).join("")}</span>` +
         `<button class="btn small" data-act="remove" data-id="${i.id}" type="button">Remove</button>`;
       const chips = (isDelayed(i) && mainStatus(i) !== "pending" ? `<span class="chip warn">Delayed</span>` : "") +
         Object.values(EXTRA_KINDS).filter((kind) => i[kind.field])
           .map((kind) => `<span class="chip ${kind.cls}">${kind.short} ${money(i[kind.field])}</span>`).join("");
-      // 7,000 paid and 13,000 awaiting: the original amount was 20,000.
-      const original = i.awaiting_amount
-        ? `<div class="original">Original amount ${money(i.amount + i.awaiting_amount)} = ${money(i.amount)} + ${money(i.awaiting_amount)} awaiting income</div>` : "";
       const images = i.images || [];
       const picker = (label) =>
         `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" multiple data-img="${i.id}"></label>`;
@@ -291,7 +358,7 @@ function renderList(items) {
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
         `<span class="pill">${STATUS_LABEL[slice(i)]}</span>` +
-        (chips || original ? `<div class="tags">${chips}${original}</div>` : "") +
+        (chips ? `<div class="tags">${chips}</div>` : "") +
         `<div class="acts">${acts}</div>${descRow}</div>`;
     }).join("");
     return monthHead + `<div class="group"><div class="ghead"><h2>${esc(fmtDay(d))}${isToday ? ' <span class="tag">Today</span>' : ""}</h2>` +
@@ -638,7 +705,6 @@ function amountHint() {
   const value = Number(amountInput.value);
   let text = "";
   if (item && value > 0) {
-    if (amountFor.kind === "awaiting") text = `Original amount: ${money(item.amount)} + ${money(value)} = ${money(item.amount + value)}`;
     if (amountFor.kind === "part_pending" && value < item.amount) text = `Paid so far: ${money(item.amount - value)}`;
   }
   document.getElementById("amount-hint").textContent = text;

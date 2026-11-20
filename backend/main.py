@@ -179,8 +179,8 @@ def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
             month_rows = [
                 dict(r)
                 for r in db.execute(
-                    "SELECT name, amount, date, status, new_date, description, awaiting_amount, we_paid_amount, "
-                    "part_pending_amount FROM payments WHERE date LIKE ? ORDER BY date, name",
+                    "SELECT name, amount, date, status, new_date, description, awaiting_amount, received_amount, "
+                    "we_paid_amount, part_pending_amount FROM payments WHERE date LIKE ? ORDER BY date, name",
                     (month_key + "-%",),
                 ).fetchall()
             ]
@@ -277,7 +277,7 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
 
 
 # The three amounts that can be added to a payment next to its status. They are not part of any total.
-EXTRA_COLUMNS = {"awaiting": "awaiting_amount", "we_paid": "we_paid_amount", "part_pending": "part_pending_amount"}
+EXTRA_COLUMNS = {"awaiting": "awaiting_amount", "received": "received_amount", "we_paid": "we_paid_amount", "part_pending": "part_pending_amount"}
 
 
 @app.put("/api/payments/{payment_id}/extra/{kind}", response_model=PaymentOut)
@@ -285,7 +285,7 @@ def set_extra_amount(payment_id: int, kind: str, payload: AmountUpdate, db: sqli
     """Sets (or, with an empty amount, clears) Awaiting income, We paid or Part paid pending of a payment."""
     column = EXTRA_COLUMNS.get(kind)
     if column is None:
-        raise HTTPException(status_code=404, detail="Unknown kind: use awaiting, we_paid or part_pending")
+        raise HTTPException(status_code=404, detail="Unknown kind: use awaiting, received, we_paid or part_pending")
     if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Payment not found")
     value = round(payload.amount, 2) if payload.amount is not None else None
@@ -589,12 +589,14 @@ def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
     result["to_pay"] = to_pay
     # Awaiting income, We paid and Part paid pending: the amounts that were entered, kept out of the totals above.
     extra = db.execute(
-        "SELECT COUNT(awaiting_amount) AS ac, SUM(awaiting_amount) AS a, COUNT(we_paid_amount) AS wc, "
-        "SUM(we_paid_amount) AS w, COUNT(part_pending_amount) AS pc, SUM(part_pending_amount) AS p "
+        "SELECT COUNT(awaiting_amount) AS ac, SUM(awaiting_amount) AS a, COUNT(received_amount) AS rc, "
+        "SUM(received_amount) AS r, COUNT(we_paid_amount) AS wc, SUM(we_paid_amount) AS w, "
+        "COUNT(part_pending_amount) AS pc, SUM(part_pending_amount) AS p "
         "FROM payments WHERE date LIKE ?",
         (month + "-%",),
     ).fetchone()
     result["awaiting_income"] = {"count": extra["ac"] or 0, "amount": extra["a"] or 0.0}
+    result["received"] = {"count": extra["rc"] or 0, "amount": extra["r"] or 0.0}
     result["we_paid"] = {"count": extra["wc"] or 0, "amount": extra["w"] or 0.0}
     result["part_pending"] = {"count": extra["pc"] or 0, "amount": extra["p"] or 0.0}
     return result
