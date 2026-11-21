@@ -180,7 +180,7 @@ def _sync_stored_excels(db, payment: dict, add_if_missing: bool = True) -> dict:
                 dict(r)
                 for r in db.execute(
                     "SELECT name, amount, date, status, new_date, description, awaiting_amount, received_amount, "
-                    "we_paid_amount, part_pending_amount FROM payments WHERE date LIKE ? ORDER BY date, name",
+                    "we_paid_amount, excess_amount, part_pending_amount FROM payments WHERE date LIKE ? ORDER BY date, name",
                     (month_key + "-%",),
                 ).fetchall()
             ]
@@ -250,6 +250,41 @@ def create_payment(payload: PaymentCreate, db: sqlite3.Connection = Depends(get_
     return {**created, **sync_stored_excels(db, created)}
 
 
+@app.put("/api/payments/{payment_id}", response_model=PaymentOut)
+def edit_payment(payment_id: int, payload: PaymentCreate, db: sqlite3.Connection = Depends(get_db)):
+    """Changes the name, amount or date of a payment. The stored Excel files follow: the payment is taken out
+    of its old place and put in the new one (a new date can mean another week or month)."""
+    row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    old = dict(row)
+    name, amount, day = payload.name.strip(), payload.amount, payload.date.isoformat()
+    if not name:
+        raise HTTPException(status_code=422, detail="Name is required.")
+    new_key = duplicate_key(name, amount, day)
+    for key, (other_id, _description) in existing_by_key(db).items():
+        if key == new_key and other_id != payment_id:
+            raise HTTPException(status_code=409, detail="Another payment has the same name, amount and date.")
+    if (name, amount, day) == (old["name"], old["amount"], old["date"]):
+        return old  # nothing changed
+    new_date = next_day(day) if old["new_date"] else None  # a delayed payment moves along with its date
+    db.execute(
+        "UPDATE payments SET name = ?, amount = ?, date = ?, new_date = ? WHERE id = ?",
+        (name, amount, day, new_date, payment_id),
+    )
+    db.commit()
+    updated = dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+    removed = remove_from_stored_excels(db, old)  # out of the old place in every stored Excel file ...
+    synced = sync_stored_excels(  # ... and into the new one (put back where it was, or when it has a colour)
+        db, updated, add_if_missing=bool(removed["files_updated"]) or excel_status(updated) != "pending"
+    )
+    return {
+        **updated,
+        "files_updated": sorted(set(removed["files_updated"]) | set(synced["files_updated"])),
+        "sync_error": removed["sync_error"] or synced["sync_error"],
+    }
+
+
 @app.patch("/api/payments/{payment_id}/status", response_model=PaymentOut)
 def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection = Depends(get_db)):
     row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
@@ -277,7 +312,7 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
 
 
 # The three amounts that can be added to a payment next to its status. They are not part of any total.
-EXTRA_COLUMNS = {"awaiting": "awaiting_amount", "received": "received_amount", "we_paid": "we_paid_amount", "part_pending": "part_pending_amount"}
+EXTRA_COLUMNS = {"awaiting": "awaiting_amount", "received": "received_amount", "we_paid": "we_paid_amount", "excess": "excess_amount", "part_pending": "part_pending_amount"}
 
 
 @app.put("/api/payments/{payment_id}/extra/{kind}", response_model=PaymentOut)
@@ -285,7 +320,7 @@ def set_extra_amount(payment_id: int, kind: str, payload: AmountUpdate, db: sqli
     """Sets (or, with an empty amount, clears) Awaiting income, We paid or Part paid pending of a payment."""
     column = EXTRA_COLUMNS.get(kind)
     if column is None:
-        raise HTTPException(status_code=404, detail="Unknown kind: use awaiting, received, we_paid or part_pending")
+        raise HTTPException(status_code=404, detail="Unknown kind: use awaiting, received, we_paid, excess or part_pending")
     if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Payment not found")
     value = round(payload.amount, 2) if payload.amount is not None else None
@@ -591,6 +626,7 @@ def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
     extra = db.execute(
         "SELECT COUNT(awaiting_amount) AS ac, SUM(awaiting_amount) AS a, COUNT(received_amount) AS rc, "
         "SUM(received_amount) AS r, COUNT(we_paid_amount) AS wc, SUM(we_paid_amount) AS w, "
+        "COUNT(excess_amount) AS xc, SUM(excess_amount) AS x, "
         "COUNT(part_pending_amount) AS pc, SUM(part_pending_amount) AS p "
         "FROM payments WHERE date LIKE ?",
         (month + "-%",),
@@ -598,6 +634,7 @@ def summary(month: str = Query(...), db: sqlite3.Connection = Depends(get_db)):
     result["awaiting_income"] = {"count": extra["ac"] or 0, "amount": extra["a"] or 0.0}
     result["received"] = {"count": extra["rc"] or 0, "amount": extra["r"] or 0.0}
     result["we_paid"] = {"count": extra["wc"] or 0, "amount": extra["w"] or 0.0}
+    result["excess"] = {"count": extra["xc"] or 0, "amount": extra["x"] or 0.0}
     result["part_pending"] = {"count": extra["pc"] or 0, "amount": extra["p"] or 0.0}
     return result
 

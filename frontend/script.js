@@ -19,6 +19,7 @@ const EXTRA_KINDS = {
   awaiting: { field: "awaiting_amount", short: "Awaiting income", label: "Amount still to come in", cls: "come", words: /await|come|balance|pending|due/i },
   received: { field: "received_amount", short: "Awaiting income received", label: "Amount received", cls: "recv", words: /receiv|got|came|paid/i },
   we_paid: { field: "we_paid_amount", short: "We paid", label: "Amount we paid", cls: "extra", words: /paid|extra/i },
+  excess: { field: "excess_amount", short: "Excess paid", label: "Excess amount (what was paid on top)", cls: "excess", words: /excess|extra|more|over|additional/i },
   part_pending: { field: "part_pending_amount", short: "Part paid pending", label: "Pending amount (the part still to pay)", cls: "part", words: /pending|balance|remain|left|due/i },
 };
 
@@ -108,7 +109,7 @@ function pieData(s) {
   if (pieMode === "amounts") {
     return Object.values(EXTRA_KINDS).map((kind) => ({
       label: kind.short, amount: s.extras[kind.field].amount, count: s.extras[kind.field].count,
-      cssVar: { come: "--come-solid", recv: "--recv-solid", extra: "--extra-solid", part: "--part-solid" }[kind.cls], dot: kind.cls,
+      cssVar: { come: "--come-solid", recv: "--recv-solid", extra: "--extra-solid", excess: "--excess-solid", part: "--part-solid" }[kind.cls], dot: kind.cls,
     }));
   }
   return DASH_STATUSES.map(([key, label, dot, cssVar]) => ({ label, amount: s.slices[key].amount, count: s.slices[key].count, cssVar, dot }));
@@ -326,6 +327,7 @@ function renderList(items) {
       };
       const acts = `<span class="grp" role="group" aria-label="Status">${statusBtn("paid", "Paid", "ok")}${delayedBtn}${statusBtn("cancelled", "Cancel", "bad")}</span>` +
         `<span class="grp" role="group" aria-label="Also add an amount">${Object.keys(EXTRA_KINDS).map(extraBtn).join("")}</span>` +
+        `<button class="btn small" data-act="edit" data-id="${i.id}" type="button">Edit</button>` +
         `<button class="btn small" data-act="remove" data-id="${i.id}" type="button">Remove</button>`;
       const chips = (isDelayed(i) && mainStatus(i) !== "pending" ? `<span class="chip warn">Delayed</span>` : "") +
         Object.values(EXTRA_KINDS).filter((kind) => i[kind.field])
@@ -341,8 +343,8 @@ function renderList(items) {
       }).join("");
       const desc = i.description || "";
       const descRow = `<div class="descrow"><div class="descfield"><label class="desclabel" for="desc-${i.id}">Description</label>` +
-        `<input id="desc-${i.id}" class="descinput${desc ? "" : " need"}" type="text" maxlength="500" ` +
-        `placeholder="Write the description (required)" autocomplete="off" value="${esc(desc)}" data-desc="${i.id}" required></div>` +
+        `<textarea id="desc-${i.id}" class="descinput${desc ? "" : " need"}" rows="3" maxlength="500" ` +
+        `placeholder="Write the description (required)" autocomplete="off" data-desc="${i.id}" required>${esc(desc)}</textarea></div>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button>` +
         `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")}</span></div>`;
       return `<div class="item ${rowClass(i)}${isToday ? " todayrow" : ""}">` +
@@ -490,12 +492,16 @@ document.getElementById("list").addEventListener("click", async (e) => {
   const id = button.dataset.id;
   const act = button.dataset.act;
   try {
+    if (act === "edit") {
+      openEdit(id); // name, amount and date in a small window
+      return;
+    }
     if (act.startsWith("extra:")) {
       openAmount(act.slice(6), id); // asks for the amount in a small window
       return;
     }
     if (act === "desc-save") {
-      await saveDescription(id, document.querySelector(`input[data-desc="${id}"]`), true);
+      await saveDescription(id, document.querySelector(`[data-desc="${id}"]`), true);
       return; // the list is not redrawn, so what you typed in the other rows stays
     } else if (act === "remove") reportSync(await api("/payments/" + id, { method: "DELETE" }));
     else if (act === "img-del") await api(`/images/${id}`, { method: "DELETE" }); // here id is the image's id
@@ -539,21 +545,21 @@ async function saveDescription(id, box, explicit) {
   }
 }
 document.getElementById("list").addEventListener("keydown", (e) => {
-  const box = e.target.closest("input[data-desc]");
-  if (!box || e.key !== "Enter") return;
+  const box = e.target.closest("[data-desc]");
+  if (!box || e.key !== "Enter" || e.shiftKey) return; // Shift+Enter starts a new line
   e.preventDefault();
   saveDescription(box.dataset.desc, box, true);
 });
 // Leaving the box (or pressing Enter) saves whatever is in it, including an erased text.
 document.getElementById("list").addEventListener("change", (e) => {
-  const box = e.target.closest("input[data-desc]");
+  const box = e.target.closest("[data-desc]");
   if (box) saveDescription(box.dataset.desc, box, false);
 });
 // The image cannot be chosen until the description is filled in.
 document.getElementById("list").addEventListener("click", (e) => {
   const picker = e.target.closest("input[data-img]");
   if (!picker) return;
-  const box = document.querySelector(`input[data-desc="${picker.dataset.img}"]`);
+  const box = document.querySelector(`[data-desc="${picker.dataset.img}"]`);
   if (!box || !box.value.trim()) {
     e.preventDefault();
     showError("Write the description first (required), then upload the image.");
@@ -668,6 +674,42 @@ document.getElementById("filelist").addEventListener("click", async (e) => {
   if (!b) return;
   if (!window.confirm("Delete this stored file? The payments already imported from it stay in the list.")) return;
   try { await api("/files/" + b.dataset.fileDel, { method: "DELETE" }); loadFiles(); } catch (err) { showError(err.message); }
+});
+
+// ---------- edit a payment: name, amount and date ----------
+const editDialog = document.getElementById("edit-dialog");
+let editFor = null;
+
+function openEdit(paymentId) {
+  const item = allItems.find((x) => String(x.id) === String(paymentId));
+  if (!item) return;
+  editFor = item.id;
+  document.getElementById("edit-name").value = item.name;
+  document.getElementById("edit-amount").value = item.amount;
+  document.getElementById("edit-date").value = item.date;
+  document.getElementById("edit-error").textContent = "";
+  editDialog.showModal();
+  document.getElementById("edit-name").focus();
+  document.getElementById("edit-name").select();
+}
+
+document.getElementById("edit-cancel").addEventListener("click", () => editDialog.close());
+document.getElementById("edit-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const error = document.getElementById("edit-error");
+  const name = document.getElementById("edit-name").value.trim();
+  const amount = Number(document.getElementById("edit-amount").value);
+  const day = document.getElementById("edit-date").value;
+  if (!name) { error.textContent = "Enter a name."; document.getElementById("edit-name").focus(); return; }
+  if (!(amount > 0)) { error.textContent = "Enter an amount, more than 0."; document.getElementById("edit-amount").focus(); return; }
+  if (!day) { error.textContent = "Choose a date."; document.getElementById("edit-date").focus(); return; }
+  try {
+    reportSync(await api(`/payments/${editFor}`, { method: "PUT", body: JSON.stringify({ name, amount, date: day }) }));
+    editDialog.close();
+    await refresh();
+  } catch (err) {
+    error.textContent = err.message;
+  }
 });
 
 // ---------- Awaiting income, We paid, Part paid pending: type the amount in a small window ----------
@@ -830,7 +872,7 @@ document.getElementById("list").addEventListener("change", async (e) => {
   let problem = "";
   try {
     showError("");
-    const box = document.querySelector(`input[data-desc="${id}"]`);
+    const box = document.querySelector(`[data-desc="${id}"]`);
     const text = box ? box.value.trim() : "";
     if (!text) throw new Error("Description is required. Write it first, then upload the image.");
     if (text !== (box.defaultValue || "").trim()) {

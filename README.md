@@ -18,9 +18,13 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
   - **Awaiting income** (purple): income that still has to come in.
   - **Awaiting income received** (pink): the part of it that has come in.
   - **We paid** (teal): an amount we paid.
+  - **Excess paid** (tan): what was paid on top of the amount, for example 2,000 to pay but 3,000 paid: type 1,000.
   - **Part paid pending** (orange): the pending part of a part payment.
   They can be used together with the status and with each other. Each shows as a tag on the row. Click the button again to change or remove the amount.
-- The three amounts are never added to the dashboard's Total, Paid, Pending, Delayed or Cancelled numbers. Each one has its own card.
+- **Edit** (next to Remove) changes a payment's name, amount or date. The stored Excel files follow: the payment is taken out of
+  its old place and put in the new one, also when the new date is in another week or month. A delayed payment moves along with its date.
+  The description box is a larger box of several lines; Enter saves it and Shift+Enter starts a new line.
+- The typed-in amounts are never added to the dashboard's Total, Paid, Pending, Delayed or Cancelled numbers. Each one has its own card.
 
 ## Structure
 
@@ -105,7 +109,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - A payment you add by hand is written into the stored Excel of its month, under its day. A new day
   gets its own column, a new week gets a new block at the bottom, and when a day has no free row a
   row is inserted above the SUM row and the SUM formulas are extended.
-- Paid, Delayed and Cancelled colour the payment's name, amount and description cells green, yellow and red (Paid or Cancelled wins over Delayed). A pending payment that has an amount in Awaiting income, We paid or Part paid pending is coloured purple, pink, teal or orange (the first one it has). Undo removes the colour.
+- Paid, Delayed and Cancelled colour the payment's name, amount and description cells green, yellow and red (Paid or Cancelled wins over Delayed). A pending payment that has an amount in Awaiting income, We paid or Part paid pending is coloured purple, pink, teal, tan or orange (the first one it has). Undo removes the colour.
 - A month with no stored Excel gets a new one, `Payments 2026-12.xlsx`.
 - Every payment has a Description box next to the image buttons. It is required: the image cannot be
   uploaded until the description is written. Whatever is left in the box is saved (also when you leave the box
@@ -154,7 +158,8 @@ CORS is already enabled in the backend.
 | GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
 | POST | `/api/payments` | Add one payment `{name, amount, date}`. Also writes it into the stored Excel file of its month |
 | PATCH | `/api/payments/{id}/status` | Send `{"status": "pending" \| "paid" \| "cancelled"}` and/or `{"delayed": true \| false}`. Also colours the payment in the stored Excel file |
-| PUT | `/api/payments/{id}/extra/{kind}` | Set (`{"amount": 13000}`) or clear (`{"amount": null}`) `awaiting`, `received`, `we_paid` or `part_pending`. Not part of any total |
+| PUT | `/api/payments/{id}` | Edit `name`, `amount` and `date` (409 when another payment has the same three). Updates the stored Excel files |
+| PUT | `/api/payments/{id}/extra/{kind}` | Set (`{"amount": 13000}`) or clear (`{"amount": null}`) `awaiting`, `received`, `we_paid`, `excess` or `part_pending`. Not part of any total |
 | PUT | `/api/payments/{id}/description` | Save the required description (also written into the stored Excel files) |
 | DELETE | `/api/payments/{id}` | Remove a payment. Also removes it from the stored Excel files |
 | POST | `/api/parse-file` | Upload .csv / .tsv / .txt / .xlsx / .xlsm / .xls / .ods / .docx / .pdf (form field `file`), returns the rows found as text. Saves nothing |

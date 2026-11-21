@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
   <div class="wrap">
@@ -122,6 +122,7 @@
           <option value="awaiting">Awaiting income</option>
           <option value="received">Awaiting income received</option>
           <option value="we_paid">We paid</option>
+          <option value="excess">Excess paid</option>
           <option value="part_pending">Part paid pending</option>
         </select>
       </div>
@@ -145,6 +146,29 @@
 
     <div id="list" class="list"></div>
   </div>
+
+  <dialog id="edit-dialog" class="small-dialog" aria-labelledby="edit-title">
+    <form id="edit-form" novalidate>
+      <h2 id="edit-title">Edit payment</h2>
+      <div class="field">
+        <label for="edit-name">Name</label>
+        <input id="edit-name" type="text" maxlength="200" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="edit-amount">Amount</label>
+        <input id="edit-amount" type="number" inputmode="decimal" min="0" step="any">
+      </div>
+      <div class="field">
+        <label for="edit-date">Date</label>
+        <input id="edit-date" type="date">
+      </div>
+      <p class="error" id="edit-error" role="alert"></p>
+      <div class="row-actions">
+        <button type="submit" class="btn">Save</button>
+        <button type="button" class="btn" id="edit-cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="amount-dialog" class="small-dialog" aria-labelledby="amount-title">
     <form id="amount-form" novalidate>
@@ -182,6 +206,6 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=28"></script>
+  <script src="script.js?v=29"></script>
 </body>
 </html>

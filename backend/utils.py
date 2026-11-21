@@ -678,6 +678,8 @@ def excel_status(payment: dict) -> str:
         return "received"
     if payment.get("we_paid_amount"):
         return "we_paid"
+    if payment.get("excess_amount"):
+        return "excess"
     if payment.get("part_pending_amount"):
         return "part_pending"
     return payment.get("status") or "pending"
