@@ -107,10 +107,6 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 .dash-total .c, .card .c { font-size: 0.8rem; color: var(--muted); }
 .topay { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 .k { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.donut { width: 116px; height: 116px; border-radius: 50%; background: var(--line); display: grid; place-items: center; flex: none; }
-.donut .hole { width: 74px; height: 74px; border-radius: 50%; background: var(--surface); display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
-.donut .hole b { font-size: 1.05rem; font-weight: 600; }
-.donut .hole small { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .card .v { font-size: 1.15rem; font-weight: 500; overflow-wrap: anywhere; margin-top: auto; } /* amounts line up even when a label wraps */

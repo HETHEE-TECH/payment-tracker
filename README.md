@@ -11,7 +11,7 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
   and the row shows `Delayed to <date>`. Paid + Delayed shows the row as Paid with a Delayed tag.
 - On the dashboard, Paid and Cancelled count the payments with that status, Delayed counts every delayed payment (also one that is
   Paid or Cancelled as well), and Pending counts the rest. A payment that is both Paid and Delayed is therefore in the Paid card and in
-  the Delayed card. The donut, the bar and the month rows put each payment in one place (Paid or Cancelled first, then Delayed), and
+  the Delayed card. The pie chart, the bar and the month rows put each payment in one place (Paid or Cancelled first, then Delayed), and
   Still to pay is every payment that is not Paid and not Cancelled.
 - Next to the status, any of three amounts can be added by clicking its button and typing the amount in a small window
   (the app fills it in from the description when it finds a number next to a word such as `balance`, `to come`, `extra` or `paid`):
