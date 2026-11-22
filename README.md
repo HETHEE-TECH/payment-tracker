@@ -71,8 +71,12 @@ import box, so you can check and fix them. Then click **Add to list** or **Repla
   so in a calendar sheet the SUM row is recognised as a row of numbers without names.
 - **OpenDocument (.ods)**, from LibreOffice or a Google Sheets download: tables and calendar sheets, like .xlsx.
 - **Word (.docx)**: tables are read first, otherwise every line of text (like a PDF).
-- **PDF**: tables are read first, otherwise each text line is read. Always check the rows after
-  importing a PDF, because PDF layouts vary. Scanned PDFs (pictures of text) are not supported.
+- **PDF**: three kinds are read. A **calendar sheet** (month title, weekday names, day numbers, then name and amount under each
+  day, with or without a description column), also when the PDF has no ruled lines (the position of the words tells which day
+  each belongs to) and when a wide sheet was cut over several pages. Otherwise a **table** (name, amount, date), otherwise
+  **text lines** such as `Rent 12000 01-11-2026`. Always check the rows after importing a PDF, because PDF layouts vary. Scanned
+  PDFs (pictures of text) are not supported. A wide sheet that the PDF cut in the middle of a day (the name on one page, the amount
+  on the next) cannot be read: save the PDF again with all columns on one page, or import the Excel file.
 
 ## Deploy on Render (with a free Postgres database)
 

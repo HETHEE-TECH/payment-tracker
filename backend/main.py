@@ -445,10 +445,14 @@ async def parse_file(file: UploadFile = File(...)):
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error))
     if not good:
-        raise HTTPException(
-            status_code=422,
-            detail="No payments found. Each row needs a name, an amount and a date.",
-        )
+        detail = "No payments found. Each row needs a name, an amount and a date."
+        if filename.endswith(".pdf"):
+            detail = (
+                "No payments found in this PDF. It can be a table (name, amount, date), lines of text, or a calendar sheet "
+                "(month title, weekday names, day numbers). If it is a wide sheet that the PDF cut over several pages, save "
+                "the PDF again with all columns on one page, or import the Excel file instead."
+            )
+        raise HTTPException(status_code=422, detail=detail)
     return {"text": payments_to_text(good), "count": len(good), "skipped": skipped}
 
 

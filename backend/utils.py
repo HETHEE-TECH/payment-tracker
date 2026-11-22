@@ -474,28 +474,197 @@ def _payments_from_tables_and_lines(table_rows, text_lines) -> Tuple[List[Paymen
     return good, skipped
 
 
+def _pdf_cell(value):
+    """A table cell from a PDF: empty becomes None, an amount or a number becomes a number, other text stays text."""
+    if value is None:
+        return None
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    if not text:
+        return None
+    if AMOUNT_CELL_RE.match(text):
+        amount = float(re.sub(r"[^0-9.]", "", text) or 0)
+        return int(amount) if amount.is_integer() else amount
+    return text
+
+
+_CURRENCY_WORDS = {"\u20b9", "rs", "rs.", "inr", "inr."}
+
+
+def _pdf_word_lines(page) -> list:
+    """The words of a page grouped into text lines, each word with its position: [{"text", "x0", "x1"}, ...]."""
+    words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
+    words.sort(key=lambda w: (w["top"], w["x0"]))
+    lines, current, top = [], [], None
+    for word in words:
+        if current and abs(word["top"] - top) > 3:
+            lines.append(current)
+            current = []
+        if not current:
+            top = word["top"]
+        current.append({"text": word["text"], "x0": word["x0"], "x1": word["x1"]})
+    if current:
+        lines.append(current)
+    return [sorted(line, key=lambda w: w["x0"]) for line in lines]
+
+
+_GLUED = re.compile(r"^(\d[\d,]*(?:\.\d+)?)([^\W\d_].*)$")  # '2400advance': an amount touching the text after it
+
+
+def _split_item(tokens):
+    """The words under one day on one line: name, then the amount, then maybe a description.
+    Returns (name, amount, description), "empty" when there is no name, or None when there is a name but no amount."""
+    words = []
+    for token in tokens:
+        glued = _GLUED.match(token)
+        if glued and (len(glued.group(1)) >= 3 or "," in glued.group(1) or "." in glued.group(1)):
+            words += [glued.group(1), glued.group(2)]  # a right-aligned amount can touch the description next to it
+        else:
+            words.append(token)
+    words = [t for t in words if t.lower() not in _CURRENCY_WORDS]
+    at = next((i for i, t in enumerate(words) if AMOUNT_CELL_RE.match(t)), None)
+    if at == 0:
+        return "empty"  # only an amount: a total, or a 0 with no item
+    if at is None:
+        return "empty" if not words else None
+    amount = parse_amount(words[at])
+    if amount is None:
+        return "empty"
+    return " ".join(words[:at]), amount, " ".join(words[at + 1:])
+
+
+def _pdf_calendar_blocks(lines):
+    """The week blocks of a calendar page: the day numbers (with where they stand and which weekday name is
+    nearest) and the text lines under them, up to the next row of weekday names."""
+    blocks, header, block = [], None, None
+    for line in lines:
+        texts = [w["text"].strip() for w in line]
+        weekdays = [w for w in line if w["text"].strip().lower().rstrip(".:") in WEEKDAYS]
+        if weekdays and len(weekdays) * 2 >= len(line):
+            header, block = [(w["x0"] + w["x1"]) / 2 for w in weekdays], None
+            continue
+        if header is None:
+            continue
+        numbers = [_day_number(t) for t in texts]
+        if block is None and all(n is not None for n in numbers) and numbers == sorted(set(numbers)):
+            days = []
+            for word, number in zip(line, numbers):
+                center = (word["x0"] + word["x1"]) / 2
+                days.append({"day": number, "x0": word["x0"], "header": min(header, key=lambda h: abs(h - center))})
+            block = {"days": days, "lines": []}
+            blocks.append(block)
+        elif block is not None:
+            block["lines"].append(line)
+    return blocks
+
+
+def _read_block(block, column_of, year, mon):
+    good: List[Payment] = []
+    skipped = 0
+    for line in block["lines"]:
+        under = {}
+        for word in line:
+            day = column_of(block["days"], word)
+            under.setdefault(day["day"], []).append(word["text"].strip())
+        for day, tokens in under.items():
+            item = _split_item(tokens)
+            if item == "empty":
+                continue
+            if item is None:
+                skipped += 1
+                continue
+            try:
+                day_iso = date(year, mon, day).isoformat()
+            except ValueError:
+                skipped += 1
+                continue
+            name, amount, description = item
+            good.append((name, float(amount), day_iso, clip_description(description)))
+    return good, skipped
+
+
+# Two ways to tell which day a word belongs to. The day number can stand at the left edge of its day (left aligned)
+# or the weekday name can stand over the middle of it. Both are tried and the one that reads more items is used.
+def _by_left_edge(days, word):
+    left = [d for d in days if d["x0"] <= word["x0"] + 6]
+    return max(left, key=lambda d: d["x0"]) if left else min(days, key=lambda d: d["x0"])
+
+
+def _by_weekday_middle(days, word):
+    center = (word["x0"] + word["x1"]) / 2
+    return min(days, key=lambda d: abs(d["header"] - center))
+
+
+def _pdf_calendar_lines(lines, month) -> Tuple[List[Payment], int]:
+    """A calendar sheet in a PDF without ruled lines: the position of the words says which day each belongs to."""
+    year, mon = month
+    good: List[Payment] = []
+    skipped = 0
+    for block in _pdf_calendar_blocks(lines):
+        results = [_read_block(block, strategy, year, mon) for strategy in (_by_left_edge, _by_weekday_middle)]
+        best = max(results, key=lambda r: len(r[0]) - 2 * r[1])
+        good += best[0]
+        skipped += best[1]
+    return good, skipped
+
+
+def _pdf_calendar(pages) -> Tuple[List[Payment], int]:
+    """A calendar sheet that was saved as a PDF (month title, weekday names, day numbers, then name and amount under
+    each day). pages: (tables, text lines, word lines) per page. A big sheet is cut over several pages by the PDF,
+    each page holding some of the days, so every page is read on its own. The month comes from the title text."""
+    first_month = next((m for m in (find_month_year([[line] for line in lines]) for _, lines, _ in pages) if m), None)
+    good: List[Payment] = []
+    skipped = 0
+    for tables, lines, word_lines in pages:
+        month = find_month_year([[line] for line in lines]) or first_month
+        page_good: List[Payment] = []
+        if tables:  # ruled lines: the cells of the tables
+            for table in tables:
+                grid = [[_pdf_cell(cell) for cell in row] for row in table]
+                if month and find_month_year(grid) is None:  # the title is not inside the table: put it on top
+                    grid = [[date(month[0], month[1], 1).strftime("%B %Y")]] + grid
+                try:
+                    result = calendar_payments(_mark_total_rows(grid))
+                except ValueError:
+                    result = None
+                if result:
+                    page_good += result[0]
+                    skipped += result[1]
+        if not page_good and month and word_lines:  # no ruled lines (or no calendar in them): the position of the words
+            page_good, page_skipped = _pdf_calendar_lines(word_lines, month)
+            skipped += page_skipped if page_good else 0
+        good += page_good
+    return good, skipped
+
+
 def parse_pdf(data: bytes) -> Tuple[List[Payment], int]:
     try:
         import pdfplumber
     except ImportError:
         raise ValueError("PDF import needs pdfplumber. Run: pip install pdfplumber")
-    table_rows, text_lines = [], []
+    pages, table_rows, text_lines = [], [], []
     try:
         with pdfplumber.open(io.BytesIO(data)) as pdf:
             for page in pdf.pages:
-                for table in page.extract_tables():
+                tables = page.extract_tables()
+                lines = (page.extract_text() or "").splitlines()
+                pages.append((tables, lines, _pdf_word_lines(page)))
+                for table in tables:
                     table_rows.extend(table)
-                text_lines.extend((page.extract_text() or "").splitlines())
+                text_lines.extend(lines)
     except Exception:
         raise ValueError("Could not read this PDF file.")
 
     if not table_rows and not any(line.strip() for line in text_lines):
         raise ValueError(
-            "No text found in this PDF. It may be a scanned image. "
+            "No text found in this PDF. It may be a scanned image (a photo of a page). "
             "Export it as CSV or Excel, or type the list."
         )
 
+    calendar = _pdf_calendar(pages)
+    if calendar[0]:  # a calendar sheet saved as a PDF
+        return calendar
     return _payments_from_tables_and_lines(table_rows, text_lines)
+
 
 # ---------- other spreadsheet and document formats: .xls, .ods, .docx ----------
 
