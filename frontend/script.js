@@ -490,7 +490,7 @@ function renderList(items) {
         `<textarea id="desc-${i.id}" class="descinput${desc ? "" : " need"}" rows="3" maxlength="500" ` +
         `placeholder="Write the description (required)" autocomplete="off" data-desc="${i.id}" required>${esc(desc)}</textarea></div>` +
         `<div class="catfield"><label class="desclabel" for="cat-${i.id}">Category</label>` +
-        `<input id="cat-${i.id}" class="catinput" list="category-list" maxlength="60" autocomplete="off" placeholder="e.g. Fees" ` +
+        `<input id="cat-${i.id}" class="catinput" list="category-list" maxlength="60" autocomplete="off" placeholder="" ` +
         `value="${esc(i.category || "")}" data-cat="${i.id}"></div>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button>` +
         `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")}</span></div>`;
