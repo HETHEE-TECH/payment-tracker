@@ -5,3 +5,4 @@ openpyxl
 pdfplumber
 psycopg[binary]
 xlrd
+reportlab

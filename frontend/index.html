@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=29">
+  <link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
   <div class="wrap">
@@ -24,7 +24,10 @@
     <section class="dashboard" aria-labelledby="dash-title">
       <div class="dash-head">
         <h2 id="dash-title">Dashboard</h2>
-        <span id="dash-scope" class="hint"></span>
+        <div class="dash-actions">
+          <span id="dash-scope" class="hint"></span>
+          <button type="button" class="btn small" id="dash-report">Download report (PDF)</button>
+        </div>
       </div>
       <div class="dash-main">
         <div class="dash-total">
@@ -44,6 +47,7 @@
           <div class="seg" role="radiogroup" aria-label="What the pie chart shows">
             <label><input type="radio" name="pie-mode" value="status" checked><span>Status</span></label>
             <label><input type="radio" name="pie-mode" value="amounts"><span>Typed-in amounts</span></label>
+            <label><input type="radio" name="pie-mode" value="category"><span>Category</span></label>
           </div>
           </div>
         </div>
@@ -52,6 +56,18 @@
           <ul id="pie-legend" class="legend"></ul>
         </div>
         <p id="pie-desc" class="visually-hidden"></p>
+      </div>
+      <div class="trendbox">
+        <div class="dash-head">
+          <h3 id="trend-title">Month-wise trend</h3>
+          <div class="seg" role="radiogroup" aria-label="Trend chart type">
+            <label><input type="radio" name="trend-mode" value="bars" checked><span>Bars</span></label>
+            <label><input type="radio" name="trend-mode" value="lines"><span>Lines</span></label>
+          </div>
+        </div>
+        <div class="trendscroll"><svg id="trend" role="img" aria-labelledby="trend-title trend-desc"></svg></div>
+        <ul id="trend-legend" class="keys"></ul>
+        <p id="trend-desc" class="visually-hidden"></p>
       </div>
       <div class="months">
         <div class="dash-head">
@@ -125,6 +141,10 @@
           <option value="excess">Excess paid</option>
           <option value="part_pending">Part paid pending</option>
         </select>
+      </div>
+      <div class="field">
+        <label for="f-category">Category</label>
+        <select id="f-category"><option value="">All categories</option></select>
       </div>
       <div class="field">
         <label for="f-year">Year</label>
@@ -206,6 +226,8 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=29"></script>
+  <datalist id="category-list"></datalist>
+
+  <script src="script.js?v=30"></script>
 </body>
 </html>

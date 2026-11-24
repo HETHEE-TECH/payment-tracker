@@ -16,7 +16,8 @@ from fastapi.staticfiles import StaticFiles
 
 from calendar_export import build_calendar_workbook
 from database import USING_POSTGRES, get_db, init_db
-from schemas import AmountUpdate, DescriptionUpdate, ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
+from report import build_report_pdf, filter_items, scope_label
+from schemas import AmountUpdate, CategoryUpdate, DescriptionUpdate, ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
     decode_text,
@@ -311,7 +312,43 @@ def update_status(payment_id: int, payload: StatusUpdate, db: sqlite3.Connection
     return {**updated, **sync_stored_excels(db, updated, add_if_missing=excel_status(updated) != "pending")}
 
 
-# The three amounts that can be added to a payment next to its status. They are not part of any total.
+@app.put("/api/payments/{payment_id}/category", response_model=PaymentOut)
+def set_category(payment_id: int, payload: CategoryUpdate, db: sqlite3.Connection = Depends(get_db)):
+    """Sets (or, when empty, clears) the category of a payment. A name that only differs in capitals from an
+    existing category uses the existing spelling, so Fees and fees do not become two categories."""
+    if db.execute("SELECT id FROM payments WHERE id = ?", (payment_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    text = re.sub(r"\s+", " ", payload.category or "").strip() or None
+    if text:
+        for row in db.execute("SELECT DISTINCT category FROM payments WHERE category IS NOT NULL").fetchall():
+            if row["category"].lower() == text.lower():
+                text = row["category"]
+                break
+    db.execute("UPDATE payments SET category = ? WHERE id = ?", (text, payment_id))
+    db.commit()
+    return dict(db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+
+
+@app.get("/api/report")
+def payment_report(
+    q: str = Query(""), status: str = Query(""), year: str = Query(""), month: str = Query(""),
+    day: str = Query(""), category: str = Query(""), db: sqlite3.Connection = Depends(get_db),
+):
+    """A PDF report for the same filters as the page: totals, pie chart, month-wise numbers, categories, the list."""
+    rows = [dict(r) for r in db.execute("SELECT * FROM payments ORDER BY date, name").fetchall()]
+    selected = filter_items(rows, q, status, year, month, day, category)
+    trend_items = filter_items(rows, q, status, category=category)  # every month, like the month rows on the page
+    scope = scope_label(q, status, year, month, day, category)
+    pdf = build_report_pdf(selected, trend_items, scope)
+    name = re.sub(r"[^A-Za-z0-9]+", "-", scope).strip("-").lower() or "all"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="payment-report-{name[:60]}.pdf"'},
+    )
+
+
+# The amounts that can be added to a payment next to its status. They are not part of any total.
 EXTRA_COLUMNS = {"awaiting": "awaiting_amount", "received": "received_amount", "we_paid": "we_paid_amount", "excess": "excess_amount", "part_pending": "part_pending_amount"}
 
 

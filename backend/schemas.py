@@ -25,6 +25,7 @@ class PaymentOut(BaseModel):
     part_pending_amount: Optional[float] = None  # Part paid pending
     received_amount: Optional[float] = None  # Awaiting income received
     excess_amount: Optional[float] = None  # Excess paid
+    category: Optional[str] = None
     has_image: bool = False
     images: List[int] = []  # ids of the payment's images, oldest first
     files_updated: List[str] = []  # stored Excel files changed by this action
@@ -33,6 +34,10 @@ class PaymentOut(BaseModel):
 
 class DescriptionUpdate(BaseModel):
     description: str = Field(default="", max_length=500)  # empty clears it
+
+
+class CategoryUpdate(BaseModel):
+    category: Optional[str] = Field(default=None, max_length=60)  # empty clears it
 
 
 class AmountUpdate(BaseModel):

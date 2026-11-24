@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS payments (
     we_paid_amount REAL,                  -- We paid: amount we paid (not part of the totals)
     part_pending_amount REAL,             -- Part paid pending: the pending part of a part payment (not part of the totals)
     received_amount REAL,                 -- Awaiting income received: the part of the awaiting income that came in (not part of the totals)
-    excess_amount REAL                    -- Excess paid: what was paid on top of the amount (not part of the totals)
+    excess_amount REAL,                   -- Excess paid: what was paid on top of the amount (not part of the totals)
+    category TEXT                         -- a free-text category such as Fees or Rent
 )
 """, """
 -- Every file you import (CSV, Excel, PDF) is kept here, so it is not lost.
@@ -78,7 +79,8 @@ CREATE TABLE IF NOT EXISTS payments (
     we_paid_amount DOUBLE PRECISION,       -- We paid: amount we paid (not part of the totals)
     part_pending_amount DOUBLE PRECISION,  -- Part paid pending: the pending part of a part payment (not part of the totals)
     received_amount DOUBLE PRECISION,      -- Awaiting income received: the part of the awaiting income that came in (not part of the totals)
-    excess_amount DOUBLE PRECISION         -- Excess paid: what was paid on top of the amount (not part of the totals)
+    excess_amount DOUBLE PRECISION,        -- Excess paid: what was paid on top of the amount (not part of the totals)
+    category TEXT                          -- a free-text category such as Fees or Rent
 )
 """, """
 CREATE TABLE IF NOT EXISTS files (
@@ -167,6 +169,7 @@ def init_db() -> None:
         raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS paid_amount DOUBLE PRECISION")
         for column in ("awaiting_amount", "we_paid_amount", "part_pending_amount", "received_amount", "excess_amount"):
             raw.execute(f"ALTER TABLE payments ADD COLUMN IF NOT EXISTS {column} DOUBLE PRECISION")
+        raw.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS category TEXT")
         for statement in LEGACY_STATUS_MIGRATION:
             raw.execute(statement)
         raw.commit()
@@ -185,6 +188,8 @@ def init_db() -> None:
     for column in ("awaiting_amount", "we_paid_amount", "part_pending_amount", "received_amount", "excess_amount"):
         if column not in columns:
             conn.execute(f"ALTER TABLE payments ADD COLUMN {column} REAL")
+    if "category" not in columns:
+        conn.execute("ALTER TABLE payments ADD COLUMN category TEXT")
     for statement in LEGACY_STATUS_MIGRATION:
         conn.execute(statement)
     conn.commit()

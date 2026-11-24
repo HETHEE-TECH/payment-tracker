@@ -124,6 +124,25 @@ textarea { width: 100%; min-height: 96px; font-family: var(--font-num); font-siz
 .bar span { display: block; height: 100%; }
 .bar .come { background: var(--come-solid); } .bar .ok { background: var(--ok-solid); } .bar .pend { background: var(--pend-solid); } .bar .warn { background: var(--warn-solid); } .bar .bad { background: var(--bad-solid); }
 
+.dash-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.catfield { flex: 0 1 200px; min-width: 150px; display: flex; flex-direction: column; gap: 3px; }
+.catinput { width: 100%; min-width: 0; font: inherit; font-size: 0.95rem; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); }
+.trendbox { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.trendbox h3 { font-size: 0.9rem; font-weight: 600; margin: 0; }
+.trendscroll { overflow-x: auto; }
+#trend { display: block; height: auto; }
+#trend text { fill: var(--muted); font-size: 11px; }
+#trend .grid { stroke: var(--line); stroke-width: 1; }
+#trend .axis { stroke: var(--muted); stroke-width: 1; }
+#trend .total { fill: var(--fg); font-weight: 600; }
+#trend .hit { fill: transparent; cursor: pointer; }
+#trend .hit:hover { fill: rgba(128, 128, 128, 0.12); }
+#trend .hit.on { fill: rgba(128, 128, 128, 0.18); }
+#trend polyline { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+#trend circle { stroke: var(--surface); stroke-width: 1.5; }
+.keys { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; }
+.keys li { display: inline-flex; align-items: center; gap: 6px; }
+.keys .dot { width: 10px; height: 10px; border-radius: 3px; }
 .piebox { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 14px; }
 .piebox h3 { font-size: 0.9rem; font-weight: 600; margin: 0; }
 .pie-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }

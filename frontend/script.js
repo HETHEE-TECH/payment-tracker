@@ -13,6 +13,12 @@ const mainStatus = (i) => (i.status === "delayed" ? "pending" : i.status);
 const slice = (i) => (mainStatus(i) !== "pending" ? mainStatus(i) : isDelayed(i) ? "delayed" : "pending");
 const rowClass = (i) => ({ paid: "ok", cancelled: "bad", delayed: "warn", pending: "" })[slice(i)];
 
+// A payment can also have a category (free text such as Fees or Rent). Capitals do not matter.
+const NO_CATEGORY = "__none__";
+const categoryOf = (i) => (i.category || "").trim();
+const matchesCategory = (i, wanted) => !wanted || (wanted === NO_CATEGORY ? categoryOf(i) === "" : categoryOf(i).toLowerCase() === wanted.toLowerCase());
+const CATEGORY_COLORS = ["#2f7de1", "#e0752b", "#8a5cd0", "#1f9d5a", "#d6453d", "#139c96", "#c2418a", "#a8693a", "#7f8c1f", "#5b6bb5"];
+
 // Three amounts that can be added to a payment next to its status. They are typed in, and they are not
 // part of the Total, Paid, Pending, Delayed or Cancelled numbers: each shows only in its own card.
 const EXTRA_KINDS = {
@@ -96,9 +102,111 @@ function scopeLabel() {
     .filter(Boolean).join(" ");
   if (date) parts.push(date);
   if (filters.status) parts.push(STATUS_LABEL[filters.status] || (EXTRA_KINDS[filters.status] || {}).short || filters.status);
+  if (filters.category) parts.push(filters.category === NO_CATEGORY ? "No category" : filters.category);
   if (filters.q.trim()) parts.push(`\u201c${filters.q.trim()}\u201d`);
   return parts.length ? parts.join(" \u00b7 ") : "All payments";
 }
+
+// ---------- month-wise trend chart ----------
+let trendMode = "bars";
+const compact = (n) => new Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+const niceMax = (v) => { // a round number at or above v, for the top of the chart
+  if (v <= 0) return 1;
+  const unit = Math.pow(10, Math.floor(Math.log10(v)));
+  const n = v / unit;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * unit;
+};
+
+function renderTrend() {
+  const svg = document.getElementById("trend");
+  const rows = monthRows().slice(-12); // the latest 12 months
+  const legend = document.getElementById("trend-legend");
+  if (!rows.length) {
+    svg.innerHTML = "";
+    svg.removeAttribute("viewBox");
+    svg.style.width = "0";
+    legend.innerHTML = `<li>No payments yet.</li>`;
+    document.getElementById("trend-desc").textContent = "Trend chart. There is nothing to show yet.";
+    return;
+  }
+  const room = svg.parentElement.clientWidth || 600; // the chart uses the whole width; with many months it scrolls
+  const W = Math.max(340, room, 64 + rows.length * 62), H = 280, L = 52, R = 12, T = 22, B = 44;
+  const top = niceMax(Math.max(...rows.map((m) => m.total)));
+  const slot = (W - L - R) / rows.length;
+  const x = (n) => L + (n + 0.5) * slot;
+  const y = (v) => T + (H - T - B) * (1 - v / top);
+  const label = (m) => `${MONTH_NAMES[Number(m.key.slice(5, 7)) - 1].slice(0, 3)} ${m.key.slice(2, 4)}`;
+  let out = "";
+  for (let t = 0; t <= 4; t++) { // grid lines and the amounts on the left
+    const v = (top / 4) * t;
+    out += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"></line><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${compact(v)}</text>`;
+  }
+  const series = [...DASH_STATUSES.map(([key, name, , cssVar]) => ({ key, name, cssVar })), ...(trendMode === "lines" ? [{ key: "total", name: "Total", cssVar: "--fg", dashed: true }] : [])];
+  if (trendMode === "bars") {
+    const bar = Math.min(54, slot * 0.55);
+    rows.forEach((m, n) => {
+      let base = 0;
+      DASH_STATUSES.forEach(([key, name, , cssVar]) => {
+        if (!m[key]) return;
+        out += `<rect style="fill:var(${cssVar})" x="${x(n) - bar / 2}" y="${y(base + m[key])}" width="${bar}" height="${y(base) - y(base + m[key])}"><title>${label(m)} ${name}: ${esc(money(m[key]))}</title></rect>`;
+        base += m[key];
+      });
+      out += `<text class="total" x="${x(n)}" y="${y(m.total) - 6}" text-anchor="middle">${compact(m.total)}</text>`;
+    });
+  } else {
+    series.forEach((line) => {
+      const value = (m) => (line.key === "total" ? m.total : m[line.key]);
+      const dash = line.dashed ? ` stroke-dasharray="6 5"` : "";
+      out += `<polyline style="stroke:var(${line.cssVar})"${dash} points="${rows.map((m, n) => `${x(n)},${y(value(m))}`).join(" ")}"></polyline>`;
+      rows.forEach((m, n) => { out += `<circle style="fill:var(${line.cssVar})" cx="${x(n)}" cy="${y(value(m))}" r="3.6"><title>${label(m)} ${line.name}: ${esc(money(value(m)))}</title></circle>`; });
+    });
+  }
+  rows.forEach((m, n) => { // month names, and a click area over each month
+    const [year, month] = m.key.split("-");
+    const on = filters.year === year && filters.month === month && !filters.day;
+    out += `<text x="${x(n)}" y="${H - B + 18}" text-anchor="middle">${label(m)}</text>` +
+      `<rect class="hit${on ? " on" : ""}" data-month="${m.key}" x="${x(n) - slot / 2}" y="${T}" width="${slot}" height="${H - T - B + 26}"><title>${MONTH_NAMES[Number(month) - 1]} ${year}: ${esc(money(m.total))}. Click to show only this month.</title></rect>`;
+  });
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.style.width = `${W}px`;
+  svg.style.maxWidth = "none";
+  svg.innerHTML = out;
+  legend.innerHTML = series.map((line) => `<li><span class="dot" style="background:var(${line.cssVar})"></span>${line.name}</li>`).join("");
+  document.getElementById("trend-desc").textContent = "Trend chart of the total of each month. " + rows.map((m) => `${label(m)}: ${money(m.total)}`).join(". ") + ".";
+}
+
+document.getElementById("trend").addEventListener("click", (e) => {
+  const hit = e.target.closest("[data-month]");
+  if (hit) chooseMonth(hit.dataset.month);
+});
+document.querySelectorAll('input[name="trend-mode"]').forEach((radio) =>
+  radio.addEventListener("change", () => { trendMode = radio.value; renderTrend(); }));
+
+// ---------- the PDF report: the same filters as the page ----------
+document.getElementById("dash-report").addEventListener("click", async () => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (String(value).trim()) params.set(key, String(value).trim()); });
+  try {
+    showError("");
+    const res = await fetch(`${API}/report?${params}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error((Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join(", ") : data.detail) || res.statusText);
+    }
+    const blob = await res.blob();
+    const name = (/filename="?([^";]+)"?/.exec(res.headers.get("Content-Disposition") || "") || [])[1] || "payment-report.pdf";
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    showNotice("Report downloaded: " + name);
+  } catch (err) {
+    showError("Could not make the report: " + err.message);
+  }
+});
 
 // ---------- pie chart ----------
 let lastSummary = null;
@@ -106,6 +214,18 @@ let pieMode = "status";
 
 // One slice per entry: { label, amount, count, cssVar, dot }. Angles are drawn clockwise from 12 o'clock.
 function pieData(s) {
+  if (pieMode === "category") { // the amount of each category (every status counts, like the total)
+    const byCategory = new Map();
+    filteredItems().forEach((i) => {
+      const none = !categoryOf(i);
+      const label = none ? "No category" : categoryOf(i);
+      if (!byCategory.has(label.toLowerCase())) byCategory.set(label.toLowerCase(), { label, amount: 0, count: 0, none });
+      const row = byCategory.get(label.toLowerCase());
+      row.amount += i.amount; row.count++;
+    });
+    return [...byCategory.values()].sort((a, b) => (a.none - b.none) || b.amount - a.amount)
+      .map((row, n) => ({ label: row.label, amount: row.amount, count: row.count, color: row.none ? "#9aa5a0" : CATEGORY_COLORS[n % CATEGORY_COLORS.length] }));
+  }
   if (pieMode === "amounts") {
     return Object.values(EXTRA_KINDS).map((kind) => ({
       label: kind.short, amount: s.extras[kind.field].amount, count: s.extras[kind.field].count,
@@ -114,6 +234,8 @@ function pieData(s) {
   }
   return DASH_STATUSES.map(([key, label, dot, cssVar]) => ({ label, amount: s.slices[key].amount, count: s.slices[key].count, cssVar, dot }));
 }
+
+const pieFill = (d) => d.color || `var(${d.cssVar})`;
 
 function renderPie() {
   if (!lastSummary) return;
@@ -126,7 +248,7 @@ function renderPie() {
   if (!total) {
     svg = `<circle class="empty" r="1"></circle>`;
   } else if (shown.length === 1) { // one slice is the whole circle
-    svg = `<circle r="1" style="fill:var(${shown[0].cssVar})"><title>${esc(text(shown[0]))}</title></circle>` +
+    svg = `<circle r="1" style="fill:${pieFill(shown[0])}"><title>${esc(text(shown[0]))}</title></circle>` +
       `<text x="0" y="0">100%</text>`;
   } else {
     let from = 0;
@@ -134,7 +256,7 @@ function renderPie() {
       const share = d.amount / total;
       const [x0, y0] = point(from, 1);
       const [x1, y1] = point(from + share, 1);
-      svg += `<path style="fill:var(${d.cssVar})" d="M 0 0 L ${x0} ${y0} A 1 1 0 ${share > 0.5 ? 1 : 0} 1 ${x1} ${y1} Z"><title>${esc(text(d))}</title></path>`;
+      svg += `<path style="fill:${pieFill(d)}" d="M 0 0 L ${x0} ${y0} A 1 1 0 ${share > 0.5 ? 1 : 0} 1 ${x1} ${y1} Z"><title>${esc(text(d))}</title></path>`;
       if (share >= 0.06) { // the percentage inside the slice, when there is room
         const [tx, ty] = point(from + share / 2, 0.64);
         svg += `<text x="${tx}" y="${ty}">${Math.round(share * 100)}%</text>`;
@@ -144,10 +266,11 @@ function renderPie() {
   }
   document.getElementById("pie").innerHTML = svg;
   const count = (n) => `${n} ${n === 1 ? "payment" : "payments"}`;
+  const share = (amount) => (!total || amount <= 0 ? "0%" : amount / total < 0.005 ? "<1%" : `${Math.round((amount / total) * 100)}%`);
   document.getElementById("pie-legend").innerHTML = data.map((d) =>
-    `<li><span class="dot ${d.dot}"></span><span class="lname">${esc(d.label)}</span>` +
+    `<li><span class="dot ${d.dot || ""}"${d.color ? ` style="background:${d.color}"` : ""}></span><span class="lname">${esc(d.label)}</span>` +
     `<span class="lval num">${money(d.amount)}</span>` +
-    `<span class="lsub">${total ? Math.round((d.amount / total) * 100) : 0}% \u00b7 ${count(d.count)}</span></li>`).join("");
+    `<span class="lsub">${share(d.amount)} \u00b7 ${count(d.count)}</span></li>`).join("");
   document.getElementById("pie-desc").textContent = total
     ? "Pie chart. " + data.map(text).join(". ") + "."
     : "Pie chart. There is nothing to show yet.";
@@ -172,7 +295,7 @@ function downloadPie() {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#1b2420";
   ctx.font = font(22, 700);
-  ctx.fillText(pieMode === "amounts" ? "Pie chart: Typed-in amounts" : "Pie chart: Status", 28, 40);
+  ctx.fillText("Pie chart: " + ({ status: "Status", amounts: "Typed-in amounts", category: "Category" })[pieMode], 28, 40);
   ctx.fillStyle = "#5b6862";
   ctx.font = font(14);
   ctx.fillText(`${scopeLabel()} \u00b7 ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}`, 28, 64);
@@ -186,7 +309,7 @@ function downloadPie() {
     data.filter((d) => d.amount > 0).forEach((d) => {
       const angle = (d.amount / total) * Math.PI * 2;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, radius, from, from + angle); ctx.closePath();
-      ctx.fillStyle = colour(d.cssVar); ctx.fill();
+      ctx.fillStyle = (d.color || colour(d.cssVar)); ctx.fill();
       ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.stroke();
       if (d.amount / total >= 0.06) {
         const mid = from + angle / 2;
@@ -203,7 +326,7 @@ function downloadPie() {
   const left = 360, right = width - 28;
   data.forEach((d, n) => {
     const y = 120 + n * 52;
-    ctx.fillStyle = colour(d.cssVar); ctx.fillRect(left, y - 13, 16, 16);
+    ctx.fillStyle = (d.color || colour(d.cssVar)); ctx.fillRect(left, y - 13, 16, 16);
     ctx.fillStyle = "#1b2420"; ctx.font = font(17, 600); ctx.fillText(d.label, left + 28, y);
     ctx.textAlign = "right"; ctx.fillText(money(d.amount), right, y); ctx.textAlign = "left";
     ctx.fillStyle = "#5b6862"; ctx.font = font(13);
@@ -256,17 +379,38 @@ function renderSummary(s) {
 
 // Month-wise totals: one row per month. Only the search and status filters apply; the date filters do not,
 // so every month stays listed. Clicking a month filters the list below to that month.
-function renderMonths() {
+// One row per month, oldest first. The search, status and category filters apply; the date filters do not,
+// so every month is listed.
+function monthRows() {
   const q = filters.q.trim().toLowerCase();
   const months = new Map();
   allItems.forEach((i) => {
-    if ((q && !i.name.toLowerCase().includes(q)) || !matchesStatus(i, filters.status)) return;
+    if ((q && !i.name.toLowerCase().includes(q)) || !matchesStatus(i, filters.status) || !matchesCategory(i, filters.category)) return;
     const key = i.date.slice(0, 7);
     if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
     const m = months.get(key);
     m.total += i.amount; m.count++; m[slice(i)] += i.amount;
   });
-  const rows = [...months.values()].sort((a, b) => (a.key < b.key ? 1 : -1)); // newest month first
+  return [...months.values()].sort((a, b) => (a.key < b.key ? -1 : 1));
+}
+
+// Clicking a month (in the list or in the trend chart) shows only that month; clicking it again shows every month.
+function chooseMonth(key) {
+  if (key === "all") {
+    filters.year = filters.month = filters.day = "";
+  } else {
+    const [year, month] = key.split("-");
+    const same = filters.year === year && filters.month === month && !filters.day;
+    filters.year = same ? "" : year;
+    filters.month = same ? "" : month;
+    filters.day = "";
+  }
+  buildFilterOptions();
+  render();
+}
+
+function renderMonths() {
+  const rows = monthRows().reverse(); // newest month first
   const box = document.getElementById("dash-months");
   if (!rows.length) { box.innerHTML = `<div class="empty">No payments yet.</div>`; return; }
   const biggest = Math.max(...rows.map((m) => m.total)) || 1;
@@ -345,6 +489,9 @@ function renderList(items) {
       const descRow = `<div class="descrow"><div class="descfield"><label class="desclabel" for="desc-${i.id}">Description</label>` +
         `<textarea id="desc-${i.id}" class="descinput${desc ? "" : " need"}" rows="3" maxlength="500" ` +
         `placeholder="Write the description (required)" autocomplete="off" data-desc="${i.id}" required>${esc(desc)}</textarea></div>` +
+        `<div class="catfield"><label class="desclabel" for="cat-${i.id}">Category</label>` +
+        `<input id="cat-${i.id}" class="catinput" list="category-list" maxlength="60" autocomplete="off" placeholder="e.g. Fees" ` +
+        `value="${esc(i.category || "")}" data-cat="${i.id}"></div>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button>` +
         `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")}</span></div>`;
       return `<div class="item ${rowClass(i)}${isToday ? " todayrow" : ""}">` +
@@ -390,7 +537,7 @@ function matchesStatus(item, wanted) {
 }
 
 let allItems = [];
-const filters = { q: "", status: "", year: "", month: "", day: "" };
+const filters = { q: "", status: "", category: "", year: "", month: "", day: "" };
 
 const MONTH_NAMES = Array.from({ length: 12 }, (_, i) =>
   utc(`2000-${pad(i + 1)}-01`).toLocaleDateString("en-IN", { month: "long", timeZone: "UTC" })
@@ -423,21 +570,41 @@ function filteredItems() {
   return allItems.filter((i) =>
     (!q || i.name.toLowerCase().includes(q)) &&
     matchesStatus(i, filters.status) &&
+    matchesCategory(i, filters.category) &&
     (!filters.year || i.date.slice(0, 4) === filters.year) &&
     (!filters.month || i.date.slice(5, 7) === filters.month) &&
     (!filters.day || i.date.slice(8, 10) === filters.day)
   );
 }
 
+// The dashboard: numbers, pie chart, month rows and trend chart. The list is drawn separately.
+function renderDashboard(items) {
+  renderSummary(summarize(items || filteredItems()));
+  renderMonths();
+  renderTrend();
+}
+
+// The category filter and the list of suggestions in the category boxes: every category that is in use.
+function renderCategoryOptions() {
+  const seen = new Map();
+  allItems.forEach((i) => { const name = categoryOf(i); if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name); });
+  const names = [...seen.values()].sort((a, b) => a.localeCompare(b));
+  const select = document.getElementById("f-category");
+  const noneUsed = allItems.some((i) => !categoryOf(i));
+  select.innerHTML = `<option value="">All categories</option>` +
+    names.map((n) => `<option value="${esc(n)}"${n.toLowerCase() === filters.category.toLowerCase() ? " selected" : ""}>${esc(n)}</option>`).join("") +
+    (noneUsed && names.length ? `<option value="${NO_CATEGORY}"${filters.category === NO_CATEGORY ? " selected" : ""}>No category</option>` : "");
+  document.getElementById("category-list").innerHTML = names.map((n) => `<option value="${esc(n)}"></option>`).join("");
+}
+
 function render() {
   const items = filteredItems();
-  const active = filters.q || filters.status || filters.year || filters.month || filters.day;
+  const active = filters.q || filters.status || filters.category || filters.year || filters.month || filters.day;
   document.getElementById("f-count").textContent = active
     ? `Showing ${items.length} of ${allItems.length} payments`
     : `${allItems.length} ${allItems.length === 1 ? "payment" : "payments"}`;
   document.getElementById("f-clear").hidden = !active;
-  renderSummary(summarize(items));
-  renderMonths();
+  renderDashboard(items);
   if (active && !items.length && allItems.length) {
     document.getElementById("list").innerHTML = `<div class="empty">No payments match these filters. Click Clear filters to see everything.</div>`;
   } else {
@@ -450,6 +617,7 @@ async function refresh() {
     showError("");
     allItems = await api("/payments"); // every payment, all months and years, sorted by date
     buildFilterOptions();
+    renderCategoryOptions();
     render();
   } catch (err) {
     showError("Could not reach the server: " + err.message);
@@ -464,25 +632,14 @@ document.getElementById("f-month").addEventListener("change", (e) => { filters.m
 document.getElementById("f-day").addEventListener("change", (e) => { filters.day = e.target.value; render(); });
 document.getElementById("dash-months").addEventListener("click", (e) => {
   const row = e.target.closest("button[data-month]");
-  if (!row) return;
-  if (row.dataset.month === "all") { // the grand total row: show every month
-    filters.year = filters.month = filters.day = "";
-    buildFilterOptions();
-    render();
-    return;
-  }
-  const [year, month] = row.dataset.month.split("-");
-  const same = filters.year === year && filters.month === month && !filters.day;
-  filters.year = same ? "" : year; // clicking the chosen month again shows every month
-  filters.month = same ? "" : month;
-  filters.day = "";
-  buildFilterOptions();
-  render();
+  if (row) chooseMonth(row.dataset.month);
 });
+document.getElementById("f-category").addEventListener("change", (e) => { filters.category = e.target.value; render(); });
 document.getElementById("f-clear").addEventListener("click", () => {
-  filters.q = filters.status = filters.year = filters.month = filters.day = "";
+  filters.q = filters.status = filters.category = filters.year = filters.month = filters.day = "";
   document.getElementById("f-search").value = "";
   document.getElementById("f-status").value = "";
+  document.getElementById("f-category").value = "";
   buildFilterOptions();
   render();
 });
@@ -549,6 +706,26 @@ document.getElementById("list").addEventListener("keydown", (e) => {
   if (!box || e.key !== "Enter" || e.shiftKey) return; // Shift+Enter starts a new line
   e.preventDefault();
   saveDescription(box.dataset.desc, box, true);
+});
+// A category is saved when you leave its box (or press Enter). The list is not redrawn, like the description.
+async function saveCategory(id, box) {
+  const text = box.value.replace(/\s+/g, " ").trim();
+  if (text === (box.defaultValue || "").trim()) return;
+  try {
+    showError("");
+    const result = await api(`/payments/${id}/category`, { method: "PUT", body: JSON.stringify({ category: text || null }) });
+    const item = allItems.find((x) => String(x.id) === String(id));
+    if (item) item.category = result.category; // the server keeps the spelling of an existing category
+    box.value = box.defaultValue = result.category || "";
+    renderCategoryOptions();
+    renderDashboard();
+  } catch (err) {
+    showError(err.message);
+  }
+}
+document.getElementById("list").addEventListener("change", (e) => {
+  const box = e.target.closest("[data-cat]");
+  if (box) saveCategory(box.dataset.cat, box);
 });
 // Leaving the box (or pressing Enter) saves whatever is in it, including an erased text.
 document.getElementById("list").addEventListener("change", (e) => {
