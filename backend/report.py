@@ -338,25 +338,12 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
                                ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), head_bg), ("FONTSIZE", (0, 0), (-1, -1), 7.5)]))
         story.append(t)
 
-    # categories
-    categories = category_rows(selected)
-    if any(not c["none"] for c in categories):
-        story.append(Paragraph("Category-wise", h2))
-        rows = [["Category", "Payments", "Amount", "Share of total"]]
-        for c in categories:
-            rows.append([para(c["label"]), c["count"], money(c["amount"]), pct(c["amount"])])
-        t = table(rows, [70 * mm, 30 * mm, 45 * mm, 35 * mm])
-        t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
-        story.append(t)
-
     # the payments
     story.append(Paragraph(f"Payments ({len(selected)})", h2))
     if selected:
         rows, tints = [["Date", "Name", "Amount", "Status", "Details"]], []
         for i in selected:
             notes = []
-            if i.get("category"):
-                notes.append(f"Category: {i['category']}")
             for _key, field, name, _color in EXTRAS:
                 if i.get(field):
                     notes.append(f"{name} {money(i[field])}")

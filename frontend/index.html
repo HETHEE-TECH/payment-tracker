@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=31">
+  <link rel="stylesheet" href="style.css?v=32">
 </head>
 <body>
   <div class="wrap">
@@ -47,7 +47,6 @@
           <div class="seg" role="radiogroup" aria-label="What the pie chart shows">
             <label><input type="radio" name="pie-mode" value="status" checked><span>Status</span></label>
             <label><input type="radio" name="pie-mode" value="amounts"><span>Typed-in amounts</span></label>
-            <label><input type="radio" name="pie-mode" value="category"><span>Category</span></label>
           </div>
           </div>
         </div>
@@ -143,10 +142,6 @@
         </select>
       </div>
       <div class="field">
-        <label for="f-category">Category</label>
-        <select id="f-category"><option value="">All categories</option></select>
-      </div>
-      <div class="field">
         <label for="f-year">Year</label>
         <select id="f-year"><option value="">All years</option></select>
       </div>
@@ -227,8 +222,6 @@
     </div>
   </dialog>
 
-  <datalist id="category-list"></datalist>
-
-  <script src="script.js?v=31"></script>
+  <script src="script.js?v=32"></script>
 </body>
 </html>

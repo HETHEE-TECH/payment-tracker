@@ -13,12 +13,6 @@ const mainStatus = (i) => (i.status === "delayed" ? "pending" : i.status);
 const slice = (i) => (mainStatus(i) !== "pending" ? mainStatus(i) : isDelayed(i) ? "delayed" : "pending");
 const rowClass = (i) => ({ paid: "ok", cancelled: "bad", delayed: "warn", pending: "" })[slice(i)];
 
-// A payment can also have a category (free text such as Fees or Rent). Capitals do not matter.
-const NO_CATEGORY = "__none__";
-const categoryOf = (i) => (i.category || "").trim();
-const matchesCategory = (i, wanted) => !wanted || (wanted === NO_CATEGORY ? categoryOf(i) === "" : categoryOf(i).toLowerCase() === wanted.toLowerCase());
-const CATEGORY_COLORS = ["#2f7de1", "#e0752b", "#8a5cd0", "#1f9d5a", "#d6453d", "#139c96", "#c2418a", "#a8693a", "#7f8c1f", "#5b6bb5"];
-
 // Three amounts that can be added to a payment next to its status. They are typed in, and they are not
 // part of the Total, Paid, Pending, Delayed or Cancelled numbers: each shows only in its own card.
 const EXTRA_KINDS = {
@@ -102,7 +96,6 @@ function scopeLabel() {
     .filter(Boolean).join(" ");
   if (date) parts.push(date);
   if (filters.status) parts.push(STATUS_LABEL[filters.status] || (EXTRA_KINDS[filters.status] || {}).short || filters.status);
-  if (filters.category) parts.push(filters.category === NO_CATEGORY ? "No category" : filters.category);
   if (filters.q.trim()) parts.push(`\u201c${filters.q.trim()}\u201d`);
   return parts.length ? parts.join(" \u00b7 ") : "All payments";
 }
@@ -214,18 +207,6 @@ let pieMode = "status";
 
 // One slice per entry: { label, amount, count, cssVar, dot }. Angles are drawn clockwise from 12 o'clock.
 function pieData(s) {
-  if (pieMode === "category") { // the amount of each category (every status counts, like the total)
-    const byCategory = new Map();
-    filteredItems().forEach((i) => {
-      const none = !categoryOf(i);
-      const label = none ? "No category" : categoryOf(i);
-      if (!byCategory.has(label.toLowerCase())) byCategory.set(label.toLowerCase(), { label, amount: 0, count: 0, none });
-      const row = byCategory.get(label.toLowerCase());
-      row.amount += i.amount; row.count++;
-    });
-    return [...byCategory.values()].sort((a, b) => (a.none - b.none) || b.amount - a.amount)
-      .map((row, n) => ({ label: row.label, amount: row.amount, count: row.count, color: row.none ? "#9aa5a0" : CATEGORY_COLORS[n % CATEGORY_COLORS.length] }));
-  }
   if (pieMode === "amounts") {
     return Object.values(EXTRA_KINDS).map((kind) => ({
       label: kind.short, amount: s.extras[kind.field].amount, count: s.extras[kind.field].count,
@@ -295,7 +276,7 @@ function downloadPie() {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#1b2420";
   ctx.font = font(22, 700);
-  ctx.fillText("Pie chart: " + ({ status: "Status", amounts: "Typed-in amounts", category: "Category" })[pieMode], 28, 40);
+  ctx.fillText("Pie chart: " + ({ status: "Status", amounts: "Typed-in amounts" })[pieMode], 28, 40);
   ctx.fillStyle = "#5b6862";
   ctx.font = font(14);
   ctx.fillText(`${scopeLabel()} \u00b7 ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}`, 28, 64);
@@ -379,13 +360,13 @@ function renderSummary(s) {
 
 // Month-wise totals: one row per month. Only the search and status filters apply; the date filters do not,
 // so every month stays listed. Clicking a month filters the list below to that month.
-// One row per month, oldest first. The search, status and category filters apply; the date filters do not,
+// One row per month, oldest first. The search and status filters apply; the date filters do not,
 // so every month is listed.
 function monthRows() {
   const q = filters.q.trim().toLowerCase();
   const months = new Map();
   allItems.forEach((i) => {
-    if ((q && !i.name.toLowerCase().includes(q)) || !matchesStatus(i, filters.status) || !matchesCategory(i, filters.category)) return;
+    if ((q && !i.name.toLowerCase().includes(q)) || !matchesStatus(i, filters.status)) return;
     const key = i.date.slice(0, 7);
     if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
     const m = months.get(key);
@@ -492,9 +473,6 @@ function renderList(items) {
       const descRow = `<div class="descrow"><div class="descfield"><label class="desclabel" for="desc-${i.id}">Description</label>` +
         `<textarea id="desc-${i.id}" class="descinput${desc ? "" : " need"}" rows="3" maxlength="500" ` +
         `placeholder="Write the description (required)" autocomplete="off" data-desc="${i.id}" required>${esc(desc)}</textarea></div>` +
-        `<div class="catfield"><label class="desclabel" for="cat-${i.id}">Category</label>` +
-        `<input id="cat-${i.id}" class="catinput" list="category-list" maxlength="60" autocomplete="off" placeholder="" ` +
-        `value="${esc(i.category || "")}" data-cat="${i.id}"></div>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button>` +
         `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image / PDF" : "Upload image / PDF")}</span></div>`;
       return `<div class="item ${rowClass(i)}${isToday ? " todayrow" : ""}">` +
@@ -540,7 +518,7 @@ function matchesStatus(item, wanted) {
 }
 
 let allItems = [];
-const filters = { q: "", status: "", category: "", year: "", month: "", day: "" };
+const filters = { q: "", status: "", year: "", month: "", day: "" };
 
 const MONTH_NAMES = Array.from({ length: 12 }, (_, i) =>
   utc(`2000-${pad(i + 1)}-01`).toLocaleDateString("en-IN", { month: "long", timeZone: "UTC" })
@@ -573,7 +551,6 @@ function filteredItems() {
   return allItems.filter((i) =>
     (!q || i.name.toLowerCase().includes(q)) &&
     matchesStatus(i, filters.status) &&
-    matchesCategory(i, filters.category) &&
     (!filters.year || i.date.slice(0, 4) === filters.year) &&
     (!filters.month || i.date.slice(5, 7) === filters.month) &&
     (!filters.day || i.date.slice(8, 10) === filters.day)
@@ -587,22 +564,9 @@ function renderDashboard(items) {
   renderTrend();
 }
 
-// The category filter and the list of suggestions in the category boxes: every category that is in use.
-function renderCategoryOptions() {
-  const seen = new Map();
-  allItems.forEach((i) => { const name = categoryOf(i); if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name); });
-  const names = [...seen.values()].sort((a, b) => a.localeCompare(b));
-  const select = document.getElementById("f-category");
-  const noneUsed = allItems.some((i) => !categoryOf(i));
-  select.innerHTML = `<option value="">All categories</option>` +
-    names.map((n) => `<option value="${esc(n)}"${n.toLowerCase() === filters.category.toLowerCase() ? " selected" : ""}>${esc(n)}</option>`).join("") +
-    (noneUsed && names.length ? `<option value="${NO_CATEGORY}"${filters.category === NO_CATEGORY ? " selected" : ""}>No category</option>` : "");
-  document.getElementById("category-list").innerHTML = names.map((n) => `<option value="${esc(n)}"></option>`).join("");
-}
-
 function render() {
   const items = filteredItems();
-  const active = filters.q || filters.status || filters.category || filters.year || filters.month || filters.day;
+  const active = filters.q || filters.status || filters.year || filters.month || filters.day;
   document.getElementById("f-count").textContent = active
     ? `Showing ${items.length} of ${allItems.length} payments`
     : `${allItems.length} ${allItems.length === 1 ? "payment" : "payments"}`;
@@ -620,7 +584,6 @@ async function refresh() {
     showError("");
     allItems = await api("/payments"); // every payment, all months and years, sorted by date
     buildFilterOptions();
-    renderCategoryOptions();
     render();
   } catch (err) {
     showError("Could not reach the server: " + err.message);
@@ -637,12 +600,10 @@ document.getElementById("dash-months").addEventListener("click", (e) => {
   const row = e.target.closest("button[data-month]");
   if (row) chooseMonth(row.dataset.month);
 });
-document.getElementById("f-category").addEventListener("change", (e) => { filters.category = e.target.value; render(); });
 document.getElementById("f-clear").addEventListener("click", () => {
-  filters.q = filters.status = filters.category = filters.year = filters.month = filters.day = "";
+  filters.q = filters.status = filters.year = filters.month = filters.day = "";
   document.getElementById("f-search").value = "";
   document.getElementById("f-status").value = "";
-  document.getElementById("f-category").value = "";
   buildFilterOptions();
   render();
 });
@@ -709,26 +670,6 @@ document.getElementById("list").addEventListener("keydown", (e) => {
   if (!box || e.key !== "Enter" || e.shiftKey) return; // Shift+Enter starts a new line
   e.preventDefault();
   saveDescription(box.dataset.desc, box, true);
-});
-// A category is saved when you leave its box (or press Enter). The list is not redrawn, like the description.
-async function saveCategory(id, box) {
-  const text = box.value.replace(/\s+/g, " ").trim();
-  if (text === (box.defaultValue || "").trim()) return;
-  try {
-    showError("");
-    const result = await api(`/payments/${id}/category`, { method: "PUT", body: JSON.stringify({ category: text || null }) });
-    const item = allItems.find((x) => String(x.id) === String(id));
-    if (item) item.category = result.category; // the server keeps the spelling of an existing category
-    box.value = box.defaultValue = result.category || "";
-    renderCategoryOptions();
-    renderDashboard();
-  } catch (err) {
-    showError(err.message);
-  }
-}
-document.getElementById("list").addEventListener("change", (e) => {
-  const box = e.target.closest("[data-cat]");
-  if (box) saveCategory(box.dataset.cat, box);
 });
 // Leaving the box (or pressing Enter) saves whatever is in it, including an erased text.
 document.getElementById("list").addEventListener("change", (e) => {

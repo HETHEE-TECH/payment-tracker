@@ -140,13 +140,10 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   either the status split (Paid, Pending, Delayed, Cancelled: each payment in one slice) or the three typed-in amounts
   (Awaiting income, Awaiting income received, We paid, Part paid pending). It follows the filters like the rest of the dashboard.
   **Download PNG** saves the pie chart, its legend, what it covers and the date as a picture.
-- **Category**: every payment has a Category box (free text such as Fees, Rent, Fruits; the boxes suggest the categories already in
-  use, and capitals do not matter). It is saved when you leave the box. The Category filter, the Category pie chart and the
-  Category-wise table in the report use it. Categories are not written into the stored Excel sheets.
 - **Month-wise trend**: a chart of the total of every month (latest 12), as stacked bars by status or as lines (the Total is a dashed
-  line). Click a month to show only that month. It follows the search, status and category filters, not the date filters.
+  line). Click a month to show only that month. It follows the search and status filters, not the date filters.
 - **Download report (PDF)** (top right of the dashboard) makes a PDF for the filters that are set: totals, status table, typed-in amounts,
-  pie chart, month-wise numbers with bars, category-wise table and the list of payments with their details. It needs `reportlab` and
+  pie chart, month-wise numbers with bars and the list of payments with their details. It needs `reportlab` and
   the fonts in `backend/fonts/` (DejaVu Sans, which has the rupee sign). Without the font files it still works, with `Rs.` and Helvetica.
   Characters the font does not have (for example Tamil letters) are shown as boxes in the PDF.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
