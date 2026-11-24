@@ -25,6 +25,7 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
   its old place and put in the new one, also when the new date is in another week or month. A delayed payment moves along with its date.
   The description box is a larger box of several lines; Enter saves it and Shift+Enter starts a new line.
 - The typed-in amounts are never added to the dashboard's Total, Paid, Pending, Delayed or Cancelled numbers. Each one has its own card.
+- A payment that has an **Awaiting income** amount is left out of **Total amount** and **Still to pay** (dashboard and PDF report). It still shows in its own status card, the pie chart, the month rows and the list.
 
 ## Structure
 
@@ -130,7 +131,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
 - The month title of a calendar sheet can be written in any of these ways: `November 2026`, `Nov 2026`,
   `Nov-26`, `Nov'26`, `11/2026`, `2026-11`, a real date cell (Excel turns a typed `Nov 2026` into 1 Nov 2026),
   or just `Nov` (the current year is assumed; check the dates in the preview before importing).
-- A payment can have several images (up to 10, each max 3 MB). Choose one or many files in the file box, and
+- A payment can have several images **or PDF files** (up to 10 in all; images max 3 MB, PDFs max 5 MB). A PDF shows as a small red `PDF` badge and opens in the viewer's PDF window (or in a new tab). Choose one or many files in the file box, and
   each shows as a small thumbnail with an x button that removes just that image. The description is still
   required before the first image is added. Click a thumbnail to open the viewer: the big image, previous and
   next buttons (or the left and right arrow keys, or a swipe on a phone), a strip of all the payment's

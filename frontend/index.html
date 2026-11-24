@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=30">
+  <link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
   <div class="wrap">
@@ -31,7 +31,7 @@
       </div>
       <div class="dash-main">
         <div class="dash-total">
-          <span class="k">Total amount</span>
+          <span class="k">Total amount <span class="c">(without Awaiting income payments)</span></span>
           <span class="big num" id="dash-total"></span>
           <span class="c" id="dash-total-count"></span>
           <span class="topay"><span class="k">Still to pay</span> <span class="num" id="dash-topay"></span> <span class="c" id="dash-topay-count"></span></span>
@@ -209,7 +209,7 @@
     </form>
   </dialog>
 
-  <dialog id="viewer" class="viewer" aria-label="Payment images">
+  <dialog id="viewer" class="viewer" aria-label="Payment images and PDFs">
     <div class="vbar">
       <div class="vcap"><b id="viewer-title"></b><span id="viewer-desc"></span></div>
       <button type="button" class="btn small" id="viewer-close" autofocus>Close</button>
@@ -217,6 +217,7 @@
     <div class="vstage" id="viewer-stage">
       <button type="button" class="vnav vprev" id="viewer-prev" aria-label="Previous image">&#8249;</button>
       <img id="viewer-img" alt="">
+      <iframe id="viewer-pdf" class="vpdf" title="PDF" hidden></iframe>
       <button type="button" class="vnav vnext" id="viewer-next" aria-label="Next image">&#8250;</button>
     </div>
     <div class="vfoot">
@@ -228,6 +229,6 @@
 
   <datalist id="category-list"></datalist>
 
-  <script src="script.js?v=30"></script>
+  <script src="script.js?v=31"></script>
 </body>
 </html>

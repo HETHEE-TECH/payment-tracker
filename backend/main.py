@@ -226,10 +226,13 @@ def list_payments(month: Optional[str] = None, db: sqlite3.Connection = Depends(
     sql += " ORDER BY p.date, p.name"
     payments = [dict(row) for row in db.execute(sql, params).fetchall()]
     image_ids: dict = {}
-    for row in db.execute("SELECT id, payment_id FROM payment_images ORDER BY id").fetchall():
+    image_types: dict = {}
+    for row in db.execute("SELECT id, payment_id, content_type FROM payment_images ORDER BY id").fetchall():
         image_ids.setdefault(row["payment_id"], []).append(row["id"])
+        image_types.setdefault(row["payment_id"], []).append(row["content_type"])
     for payment in payments:
         payment["images"] = image_ids.get(payment["id"], [])
+        payment["image_types"] = image_types.get(payment["id"], [])
         payment["has_image"] = bool(payment["images"])  # a true/false, not the number of images
     return payments
 
@@ -565,17 +568,20 @@ def upload_image(payment_id: int, file: UploadFile = File(...), db: sqlite3.Conn
         raise HTTPException(status_code=404, detail="Payment not found")
     if not (row["description"] or "").strip():
         raise HTTPException(status_code=422, detail="Write a description for this payment before uploading an image.")
-    data = file.file.read(MAX_IMAGE_BYTES + 1)
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image is too large (limit is 3 MB)")
+    data = file.file.read(MAX_UPLOAD_BYTES + 1)
     content_type = sniff_image(data)
     if content_type is None:
-        raise HTTPException(status_code=422, detail="Upload a JPG, PNG, WEBP or GIF image")
+        raise HTTPException(status_code=422, detail="Upload a JPG, PNG, WEBP or GIF image, or a PDF file")
+    if content_type == "application/pdf":
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="PDF is too large (limit is 5 MB)")
+    elif len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image is too large (limit is 3 MB)")
     have = db.execute("SELECT COUNT(*) AS n FROM payment_images WHERE payment_id = ?", (payment_id,)).fetchone()["n"]
     if have >= MAX_IMAGES_PER_PAYMENT:
         raise HTTPException(
             status_code=422,
-            detail=f"A payment can have up to {MAX_IMAGES_PER_PAYMENT} images. Remove one to add another.",
+            detail=f"A payment can have up to {MAX_IMAGES_PER_PAYMENT} images or PDFs. Remove one to add another.",
         )
     db.execute(  # adds one more image; the payment's other images stay
         "INSERT INTO payment_images (payment_id, content_type, data) VALUES (?, ?, ?)",
@@ -586,11 +592,10 @@ def upload_image(payment_id: int, file: UploadFile = File(...), db: sqlite3.Conn
 
 
 def image_response(row) -> Response:
-    return Response(
-        content=bytes(row["data"]),
-        media_type=row["content_type"],
-        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
-    )
+    headers = {"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"}
+    if row["content_type"] == "application/pdf":
+        headers["Content-Disposition"] = 'inline; filename="attachment.pdf"'  # opens in the browser's PDF viewer
+    return Response(content=bytes(row["data"]), media_type=row["content_type"], headers=headers)
 
 
 @app.get("/api/images/{image_id}")
@@ -611,7 +616,7 @@ def delete_image_by_id(image_id: int, db: sqlite3.Connection = Depends(get_db)):
 
 @app.get("/api/payments/{payment_id}/image")
 def get_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
-    """The payment's first image (older link; the page uses /api/images/{id})."""
+    """The payment's first image or PDF (older link; the page uses /api/images/{id})."""
     row = db.execute(
         "SELECT content_type, data FROM payment_images WHERE payment_id = ? ORDER BY id LIMIT 1", (payment_id,)
     ).fetchone()
@@ -622,7 +627,7 @@ def get_image(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
 
 @app.delete("/api/payments/{payment_id}/image", status_code=204)
 def delete_images(payment_id: int, db: sqlite3.Connection = Depends(get_db)):
-    """Removes all images of a payment."""
+    """Removes all images and PDFs of a payment."""
     db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment_id,))
     db.commit()
 

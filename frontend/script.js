@@ -351,7 +351,7 @@ document.querySelectorAll('input[name="pie-mode"]').forEach((radio) =>
 function renderSummary(s) {
   lastSummary = s;
   renderPie();
-  const base = s.total.amount;
+  const base = DASH_STATUSES.reduce((sum, [key]) => sum + s.slices[key].amount, 0); // every payment: the shares of the cards and the bar
   const pct = (part) => (base ? (part.amount / base) * 100 : 0);
   const sliceOf = (key) => s.slices[key];
   const count = (n) => `${n} ${n === 1 ? "payment" : "payments"}`;
@@ -434,7 +434,8 @@ function renderMonths() {
   }).join("") + grandTotal;
 }
 
-const MAX_IMAGES = 10; // images per payment (the server enforces the same limit)
+const MAX_IMAGES = 10; // images and PDFs per payment (the server enforces the same limit)
+const isPdf = (type) => type === "application/pdf";
 
 function renderList(items) {
   const host = document.getElementById("list");
@@ -478,12 +479,14 @@ function renderList(items) {
           .map((kind) => `<span class="chip ${kind.cls}">${kind.short} ${money(i[kind.field])}</span>`).join("");
       const images = i.images || [];
       const picker = (label) =>
-        `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*" multiple data-img="${i.id}"></label>`;
+        `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*,application/pdf,.pdf" multiple data-img="${i.id}"></label>`;
       const thumbs = images.map((imageId, n) => {
         const url = `${API}/images/${imageId}`;
-        return `<span class="thumbwrap"><a class="thumb" href="${url}" target="_blank" rel="noopener" data-view="${i.id}" data-n="${n}" title="View image ${n + 1} of ${images.length}">` +
-          `<img src="${url}" alt="Image ${n + 1} for ${esc(i.name)}" width="36" height="36" loading="lazy"></a>` +
-          `<button type="button" class="thumbx" data-act="img-del" data-id="${imageId}" aria-label="Remove image ${n + 1} of ${esc(i.name)}">\u00d7</button></span>`;
+        const pdf = isPdf((i.image_types || [])[n]);
+        return `<span class="thumbwrap"><a class="thumb${pdf ? " pdf" : ""}" href="${url}" target="_blank" rel="noopener" data-view="${i.id}" data-n="${n}" title="View ${pdf ? "PDF" : "image"} ${n + 1} of ${images.length}">` +
+          (pdf ? `<span class="pdfbadge" role="img" aria-label="PDF ${n + 1} for ${esc(i.name)}">PDF</span>`
+               : `<img src="${url}" alt="Image ${n + 1} for ${esc(i.name)}" width="36" height="36" loading="lazy">`) + `</a>` +
+          `<button type="button" class="thumbx" data-act="img-del" data-id="${imageId}" aria-label="Remove ${pdf ? "PDF" : "image"} ${n + 1} of ${esc(i.name)}">\u00d7</button></span>`;
       }).join("");
       const desc = i.description || "";
       const descRow = `<div class="descrow"><div class="descfield"><label class="desclabel" for="desc-${i.id}">Description</label>` +
@@ -493,7 +496,7 @@ function renderList(items) {
         `<input id="cat-${i.id}" class="catinput" list="category-list" maxlength="60" autocomplete="off" placeholder="" ` +
         `value="${esc(i.category || "")}" data-cat="${i.id}"></div>` +
         `<button class="btn small" data-act="desc-save" data-id="${i.id}" type="button">Save</button>` +
-        `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image" : "Upload image")}</span></div>`;
+        `<span class="imgctl">${thumbs}${images.length >= MAX_IMAGES ? "" : picker(images.length ? "Add image / PDF" : "Upload image / PDF")}</span></div>`;
       return `<div class="item ${rowClass(i)}${isToday ? " todayrow" : ""}">` +
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
@@ -514,12 +517,12 @@ function summarize(items) {
   items.forEach((i) => {
     const status = mainStatus(i);
     const delayed = isDelayed(i);
-    add(s.total, i);
+    if (!i.awaiting_amount) add(s.total, i); // a payment that has Awaiting income is not part of Total amount or Still to pay
     add(s.slices[slice(i)], i); // each payment once: this feeds the pie chart and the bar
     if (status === "paid" || status === "cancelled") add(s[status], i);
     else if (!delayed) add(s.pending, i);
     if (delayed) add(s.delayed, i); // Delayed counts every delayed payment, also one that is Paid or Cancelled as well
-    if (status === "pending") add(s.to_pay, i); // not paid and not cancelled, delayed or not
+    if (status === "pending" && !i.awaiting_amount) add(s.to_pay, i); // not paid and not cancelled, delayed or not
     Object.values(EXTRA_KINDS).forEach((kind) => { // typed-in amounts: only in their own card, never in the numbers above
       if (i[kind.field]) { s.extras[kind.field].count++; s.extras[kind.field].amount += i[kind.field]; }
     });
@@ -739,7 +742,7 @@ document.getElementById("list").addEventListener("click", (e) => {
   const box = document.querySelector(`[data-desc="${picker.dataset.img}"]`);
   if (!box || !box.value.trim()) {
     e.preventDefault();
-    showError("Write the description first (required), then upload the image.");
+    showError("Write the description first (required), then upload the image or PDF.");
     if (box) box.focus();
   }
 });
@@ -965,7 +968,7 @@ document.getElementById("amount-form").addEventListener("submit", (e) => {
 
 // ---------- image viewer: all images of a payment, one after the other ----------
 const viewer = document.getElementById("viewer");
-const view = { ids: [], at: 0, name: "", desc: "" };
+const view = { ids: [], types: [], at: 0, name: "", desc: "" };
 
 function showImage(at) {
   const total = view.ids.length;
@@ -973,20 +976,33 @@ function showImage(at) {
   view.at = (at + total) % total; // after the last image comes the first
   const url = `${API}/images/${view.ids[view.at]}`;
   const img = document.getElementById("viewer-img");
-  img.src = url;
-  img.alt = `Image ${view.at + 1} of ${total} for ${view.name}`;
-  document.getElementById("viewer-count").textContent = `Image ${view.at + 1} of ${total}`;
+  const frame = document.getElementById("viewer-pdf");
+  const pdf = isPdf(view.types[view.at]);
+  img.hidden = pdf;
+  frame.hidden = !pdf;
+  if (pdf) {
+    img.removeAttribute("src");
+    frame.src = url;
+    frame.title = `PDF ${view.at + 1} of ${total} for ${view.name}`;
+  } else {
+    frame.removeAttribute("src");
+    img.src = url;
+    img.alt = `Image ${view.at + 1} of ${total} for ${view.name}`;
+  }
+  document.getElementById("viewer-count").textContent = `${pdf ? "PDF" : "Image"} ${view.at + 1} of ${total}`;
   document.getElementById("viewer-open").href = url;
+  document.getElementById("viewer-open").textContent = pdf ? "Open PDF in a new tab" : "Open full size";
   document.getElementById("viewer-prev").hidden = document.getElementById("viewer-next").hidden = total < 2;
   document.getElementById("viewer-strip").innerHTML = total < 2 ? "" : view.ids.map((imageId, n) =>
-    `<button type="button" class="vthumb" data-n="${n}" aria-label="Show image ${n + 1}" aria-current="${n === view.at}">` +
-    `<img src="${API}/images/${imageId}" alt="" loading="lazy"></button>`).join("");
+    `<button type="button" class="vthumb" data-n="${n}" aria-label="Show ${isPdf(view.types[n]) ? "PDF" : "image"} ${n + 1}" aria-current="${n === view.at}">` +
+    (isPdf(view.types[n]) ? `<span class="pdfbadge big">PDF</span>` : `<img src="${API}/images/${imageId}" alt="" loading="lazy">`) + `</button>`).join("");
 }
 
 function openViewer(paymentId, at) {
   const item = allItems.find((x) => String(x.id) === String(paymentId));
   if (!item || !(item.images || []).length) return;
   view.ids = item.images;
+  view.types = item.image_types || [];
   view.name = item.name;
   document.getElementById("viewer-title").textContent = `${item.name} \u00b7 ${money(item.amount)}`;
   document.getElementById("viewer-desc").textContent = item.description || "";
@@ -1025,6 +1041,7 @@ stage.addEventListener("touchend", (e) => {
 // ---------- payment images ----------
 // Big photos are shrunk in the browser first (max 1400 px, JPEG), so uploads stay small and fast.
 async function shrinkImage(file) {
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name || "")) return file; // PDFs are sent as they are
   if (file.type === "image/gif" || (file.size <= 400 * 1024 && /^image\/(jpeg|png|webp)$/.test(file.type))) return file;
   try {
     const bitmap = await createImageBitmap(file);
@@ -1051,7 +1068,7 @@ document.getElementById("list").addEventListener("change", async (e) => {
     showError("");
     const box = document.querySelector(`[data-desc="${id}"]`);
     const text = box ? box.value.trim() : "";
-    if (!text) throw new Error("Description is required. Write it first, then upload the image.");
+    if (!text) throw new Error("Description is required. Write it first, then upload the image or PDF.");
     if (text !== (box.defaultValue || "").trim()) {
       reportSync(await api(`/payments/${id}/description`, { method: "PUT", body: JSON.stringify({ description: text }) }));
     }
@@ -1059,7 +1076,7 @@ document.getElementById("list").addEventListener("change", async (e) => {
     const item = allItems.find((x) => String(x.id) === String(id));
     const room = Math.max(0, MAX_IMAGES - ((item && item.images) || []).length);
     const files = [...input.files];
-    if (files.length > room) problem = `A payment can have up to ${MAX_IMAGES} images, so only the first ${room} were added.`;
+    if (files.length > room) problem = `A payment can have up to ${MAX_IMAGES} images or PDFs, so only the first ${room} were added.`;
     for (const file of files.slice(0, room)) {
       const blob = await shrinkImage(file);
       const form = new FormData();

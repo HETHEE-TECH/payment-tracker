@@ -61,7 +61,7 @@ def duplicate_key(name: str, amount: float, day: str):
 
 
 def sniff_image(data: bytes) -> Optional[str]:
-    """Returns the image type from the file's first bytes, or None when it is not JPG/PNG/GIF/WEBP."""
+    """Returns the type from the file's first bytes (JPG, PNG, GIF, WEBP or PDF), or None for anything else."""
     if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -70,6 +70,8 @@ def sniff_image(data: bytes) -> Optional[str]:
         return "image/gif"
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
+    if data.startswith(b"%PDF-"):
+        return "application/pdf"  # a PDF can be attached to a payment like an image
     return None
 
 

@@ -27,7 +27,8 @@ class PaymentOut(BaseModel):
     excess_amount: Optional[float] = None  # Excess paid
     category: Optional[str] = None
     has_image: bool = False
-    images: List[int] = []  # ids of the payment's images, oldest first
+    images: List[int] = []  # ids of the payment's images / PDFs, oldest first
+    image_types: List[str] = []  # the content type of each id above ("image/png", "application/pdf", ...)
     files_updated: List[str] = []  # stored Excel files changed by this action
     sync_error: Optional[str] = None
 

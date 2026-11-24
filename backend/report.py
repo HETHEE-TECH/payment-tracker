@@ -95,7 +95,8 @@ def summarize(items: List[dict]) -> dict:
 
     for i in items:
         status = main_status(i)
-        add(s["total"], i)
+        if not i.get("awaiting_amount"):  # a payment with Awaiting income is not part of Total amount or Still to pay
+            add(s["total"], i)
         add(s["slices"][slice_of(i)], i)
         if status in ("paid", "cancelled"):
             add(s[status], i)
@@ -103,7 +104,7 @@ def summarize(items: List[dict]) -> dict:
             add(s["pending"], i)
         if is_delayed(i):
             add(s["delayed"], i)
-        if status == "pending":
+        if status == "pending" and not i.get("awaiting_amount"):
             add(s["to_pay"], i)
         for _key, field, _name, _color in EXTRAS:
             if i.get(field):
@@ -228,10 +229,11 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
 
     s = summarize(selected)
     total = s["total"]["amount"]
+    base = sum(s["slices"][key]["amount"] for key, _name in STATUSES)  # every payment, for the shares and the pie chart
     def pct(part):
-        if not total or part <= 0:
+        if not base or part <= 0:
             return "0%"
-        return f"{round(part / total * 100)}%" if part / total >= 0.005 else "<1%"
+        return f"{round(part / base * 100)}%" if part / base >= 0.005 else "<1%"
     story = [
         Paragraph("Payment report", h1),
         Paragraph(escape(scope), ParagraphStyle("sc", parent=text, fontSize=11, leading=14)),
@@ -242,7 +244,7 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
     # totals
     big = ParagraphStyle("big", fontName=bold, fontSize=17, leading=21)
     story.append(table(
-        [[para("Total amount", small), para("Still to pay", small)],
+        [[para("Total amount (without Awaiting income payments)", small), para("Still to pay", small)],
          [Paragraph(escape(money(total)), big), Paragraph(escape(money(s["to_pay"]["amount"])), big)],
          [para(f"{s['total']['count']} payments", small), para(f"{s['to_pay']['count']} payments", small)]],
         [90 * mm, 90 * mm], header=False))
@@ -268,14 +270,14 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
 
     # pie chart: each payment in one slice
     slices = [(name, s["slices"][key]["amount"], STATUS_COLORS[key]) for key, name in STATUSES]
-    if total > 0:
+    if base > 0:
         story.append(Paragraph("Pie chart", h2))
         drawing = Drawing(180 * mm, 62 * mm)
         pie = Pie()
         pie.x, pie.y, pie.width, pie.height = 8 * mm, 4 * mm, 54 * mm, 54 * mm
         shown = [d for d in slices if d[1] > 0]
         pie.data = [d[1] for d in shown]
-        pie.labels = [f"{round(d[1] / total * 100)}%" if d[1] / total >= 0.06 else "" for d in shown]  # no label on a thin slice
+        pie.labels = [f"{round(d[1] / base * 100)}%" if d[1] / base >= 0.06 else "" for d in shown]  # no label on a thin slice
         pie.sideLabels = False
         pie.simpleLabels = False
         pie.slices.strokeColor = colors.white
