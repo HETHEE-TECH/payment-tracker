@@ -94,6 +94,9 @@ const DASH_STATUSES = [
   ["cancelled", "Cancelled", "bad", "--bad-solid"],
 ];
 
+// The month rows and the trend chart do not count Cancelled payments in a month's total, so they do not show a Cancelled part either.
+const MONTH_STATUSES = DASH_STATUSES.filter(([key]) => key !== "cancelled");
+
 // What the dashboard is counting, from the filters that are set (for example "November 2026 · Paid").
 function scopeLabel() {
   const parts = [];
@@ -139,12 +142,12 @@ function renderTrend() {
     const v = (top / 4) * t;
     out += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"></line><text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${compact(v)}</text>`;
   }
-  const series = [...DASH_STATUSES.map(([key, name, , cssVar]) => ({ key, name, cssVar })), ...(trendMode === "lines" ? [{ key: "total", name: "Total", cssVar: "--fg", dashed: true }] : [])];
+  const series = [...MONTH_STATUSES.map(([key, name, , cssVar]) => ({ key, name, cssVar })), ...(trendMode === "lines" ? [{ key: "total", name: "Total", cssVar: "--fg", dashed: true }] : [])];
   if (trendMode === "bars") {
     const bar = Math.min(54, slot * 0.55);
     rows.forEach((m, n) => {
       let base = 0;
-      DASH_STATUSES.forEach(([key, name, , cssVar]) => {
+      MONTH_STATUSES.forEach(([key, name, , cssVar]) => {
         if (!m[key]) return;
         out += `<rect style="fill:var(${cssVar})" x="${x(n) - bar / 2}" y="${y(base + m[key])}" width="${bar}" height="${y(base) - y(base + m[key])}"><title>${label(m)} ${name}: ${esc(money(m[key]))}</title></rect>`;
         base += m[key];
@@ -375,7 +378,8 @@ function monthRows() {
     const key = i.date.slice(0, 7);
     if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
     const m = months.get(key);
-    m.total += i.amount; m.count++; m[slice(i)] += i.amount;
+    m.count++; m[slice(i)] += i.amount;
+    if (mainStatus(i) !== "cancelled") m.total += i.amount; // a cancelled amount is not part of a month's total
   });
   return [...months.values()].sort((a, b) => (a.key < b.key ? -1 : 1));
 }
@@ -403,7 +407,7 @@ function renderMonths() {
   const all = { total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 };
   rows.forEach((m) => { for (const k in all) all[k] += m[k]; });
   const none = !filters.year && !filters.month && !filters.day;
-  const sum = DASH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${all.total ? (all[key] / all.total) * 100 : 0}%"></span>`).join("");
+  const sum = MONTH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${all.total ? (all[key] / all.total) * 100 : 0}%"></span>`).join("");
   const grandTotal = `<button type="button" class="mrow mall" data-month="all" aria-pressed="${none}" ` +
     `aria-label="All months: ${money(all.total)}, ${all.count} ${all.count === 1 ? "payment" : "payments"}">` +
     `<span class="mname">All months</span><span class="mtrack" aria-hidden="true">${sum}</span>` +
@@ -413,7 +417,7 @@ function renderMonths() {
     const [year, month] = m.key.split("-");
     const label = `${MONTH_NAMES[Number(month) - 1]} ${year}`;
     const on = filters.year === year && filters.month === month && !filters.day;
-    const slices = DASH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${(m[key] / biggest) * 100}%"></span>`).join("");
+    const slices = MONTH_STATUSES.map(([key, , dot]) => `<span class="${dot}" style="width:${(m[key] / biggest) * 100}%"></span>`).join("");
     return `<button type="button" class="mrow" data-month="${m.key}" aria-pressed="${on}" aria-label="${label}: ${money(m.total)}, ${m.count} ${m.count === 1 ? "payment" : "payments"}">` +
       `<span class="mname">${label}</span><span class="mtrack" aria-hidden="true">${slices}</span>` +
       `<span class="mval num">${money(m.total)}</span><span class="mcount">${m.count} ${m.count === 1 ? "payment" : "payments"}</span></button>`;

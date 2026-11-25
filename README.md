@@ -27,6 +27,7 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
   The description box is a larger box of several lines; Enter saves it and Shift+Enter starts a new line.
 - The typed-in amounts are never added to the dashboard's Total, Paid, Pending, Delayed or Cancelled numbers. Each one has its own card.
 - **Total amount** adds only Paid, Delayed and Pending payments. Cancelled payments are left out, and so is a payment that has a balance amount (Awaiting income, Awaiting income received, We paid, Excess paid or Part paid pending), unless it is Paid: a Paid payment always counts in the Total, also when it has one of those amounts. **Still to pay** follows the same rule. Other cards, the pie chart, the month rows and the list still show every payment. Same rule in the PDF report.
+- A month's total (the month rows, the month-wise trend chart and the report's month table) does not include **Cancelled** payments. The Cancelled amount is not drawn in those bars and lines; the report's month table still lists it in its own column.
 
 ## Structure
 

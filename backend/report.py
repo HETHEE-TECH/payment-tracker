@@ -15,6 +15,7 @@ from typing import Dict, List, Optional
 from xml.sax.saxutils import escape
 
 STATUSES = [("paid", "Paid"), ("pending", "Pending"), ("delayed", "Delayed"), ("cancelled", "Cancelled")]
+MONTH_STATUSES = [s for s in STATUSES if s[0] != "cancelled"]
 STATUS_COLORS = {"paid": "#22a05a", "pending": "#5b7fa6", "delayed": "#e3ad0b", "cancelled": "#d64545"}
 ROW_TINTS = {"paid": "#e4f4ea", "delayed": "#fdf3cf", "cancelled": "#fbe1e1", "pending": "#ffffff"}
 # the filter key, the column, the name
@@ -135,7 +136,8 @@ def month_rows(items: List[dict]) -> List[dict]:
     for i in items:
         key = i["date"][:7]
         row = months.setdefault(key, {"key": key, "total": 0.0, "count": 0, "paid": 0.0, "pending": 0.0, "delayed": 0.0, "cancelled": 0.0})
-        row["total"] += i["amount"]
+        if main_status(i) != "cancelled":  # a cancelled amount is not part of a month's total
+            row["total"] += i["amount"]
         row["count"] += 1
         row[slice_of(i)] += i["amount"]
     return [months[k] for k in sorted(months)]
@@ -323,7 +325,7 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
             chart = Drawing(180 * mm, 65 * mm)
             bc = VerticalBarChart()
             bc.x, bc.y, bc.width, bc.height = 22 * mm, 10 * mm, 150 * mm, 46 * mm
-            bc.data = [[m[key] for m in shown_months] for key, _name in STATUSES]  # paid at the bottom
+            bc.data = [[m[key] for m in shown_months] for key, _name in MONTH_STATUSES]  # paid at the bottom; cancelled is not in a month's total
             bc.categoryAxis.categoryNames = [f"{MONTH_NAMES[int(m['key'][5:7]) - 1][:3]} {m['key'][2:4]}" for m in shown_months]
             bc.categoryAxis.style = "stacked"
             bc.categoryAxis.labels.fontName = regular
@@ -333,11 +335,11 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
             bc.valueAxis.valueMin = 0
             bc.valueAxis.labelTextFormat = lambda v: indian(v)
             bc.groupSpacing = 6
-            for n, (key, _name) in enumerate(STATUSES):
+            for n, (key, _name) in enumerate(MONTH_STATUSES):
                 bc.bars[n].fillColor = colors.HexColor(STATUS_COLORS[key])
                 bc.bars[n].strokeColor = None
             chart.add(bc)
-            for n, (key, name) in enumerate(STATUSES):  # what the colours mean
+            for n, (key, name) in enumerate(MONTH_STATUSES):  # what the colours mean
                 x = 24 * mm + n * 30 * mm
                 chart.add(Rect(x, 59 * mm, 3 * mm, 3 * mm, fillColor=colors.HexColor(STATUS_COLORS[key]), strokeColor=None))
                 chart.add(String(x + 4.5 * mm, 59.4 * mm, name, fontName=regular, fontSize=7.5))
@@ -353,6 +355,7 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
         t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT"), ("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1), bold),
                                ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), head_bg), ("FONTSIZE", (0, 0), (-1, -1), 7.5)]))
         story.append(t)
+        story += [Spacer(1, 3), Paragraph("A month's Total does not include its Cancelled amount (the Cancelled column is shown on its own).", small)]
 
     # the payments
     story.append(Paragraph(f"Payments ({len(selected)})", h2))
