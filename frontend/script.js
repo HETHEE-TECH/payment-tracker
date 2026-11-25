@@ -1042,15 +1042,26 @@ document.getElementById("list").addEventListener("change", async (e) => {
 document.getElementById("a-date").value = today;
 document.getElementById("add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const number = (id) => {
+    const value = parseFloat(document.getElementById(id).value.replace(/[^0-9.]/g, ""));
+    return value > 0 ? value : null; // an empty box means no amount
+  };
   const body = {
     name: document.getElementById("a-name").value.trim(),
     amount: parseFloat(document.getElementById("a-amt").value.replace(/[^0-9.]/g, "")),
     date: document.getElementById("a-date").value,
+    status: document.querySelector('input[name="a-status"]:checked').value,
+    delayed: document.getElementById("a-delayed").checked,
+    awaiting_amount: number("a-awaiting"),
+    received_amount: number("a-received"),
+    we_paid_amount: number("a-we-paid"),
+    excess_amount: number("a-excess"),
+    part_pending_amount: number("a-part"),
   };
   try {
     reportSync(await api("/payments", { method: "POST", body: JSON.stringify(body) }));
-    document.getElementById("a-name").value = "";
-    document.getElementById("a-amt").value = "";
+    document.getElementById("add-form").reset(); // name, amount, status, Delayed and the amounts
+    document.getElementById("a-date").value = today;
     refresh();
   } catch (err) {
     showError(err.message);

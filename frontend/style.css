@@ -346,3 +346,11 @@ dialog.viewer::backdrop { background: rgba(0, 0, 0, 0.65); }
 .pdfbadge.big { width: 48px; height: 48px; }
 .vpdf { width: 100%; height: 68vh; border: 0; background: var(--bg); }
 .vpdf[hidden] { display: none; }
+
+/* Add one payment: the status choice and the optional balance amounts */
+.addform { display: flex; flex-direction: column; gap: 14px; }
+.addopts { display: flex; flex-direction: column; gap: 12px; }
+.optlabel { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.extragrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.extragrid .field label { text-transform: none; letter-spacing: 0; font-size: 0.8rem; }
+.extragrid input { width: 100%; }

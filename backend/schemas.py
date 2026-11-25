@@ -12,6 +12,17 @@ class PaymentCreate(BaseModel):
     date: Date
 
 
+class PaymentAdd(PaymentCreate):
+    """Add one payment: the status and the balance amounts can be chosen right away."""
+    status: Literal["pending", "paid", "cancelled"] = "pending"
+    delayed: bool = False  # Delayed can be on together with Paid or Cancel
+    awaiting_amount: Optional[float] = Field(default=None, gt=0)
+    received_amount: Optional[float] = Field(default=None, gt=0)
+    we_paid_amount: Optional[float] = Field(default=None, gt=0)
+    excess_amount: Optional[float] = Field(default=None, gt=0)
+    part_pending_amount: Optional[float] = Field(default=None, gt=0)
+
+
 class PaymentOut(BaseModel):
     id: int
     name: str

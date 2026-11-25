@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=32">
+  <link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
   <div class="wrap">
@@ -96,11 +96,34 @@
       <details id="d-add">
         <summary>Add one payment</summary>
         <div class="body">
-          <form class="addgrid" id="add-form">
-            <div class="field"><label for="a-name">Name</label><input id="a-name" required placeholder="Course fee"></div>
-            <div class="field"><label for="a-amt">Amount (₹)</label><input id="a-amt" inputmode="decimal" required placeholder="2500"></div>
-            <div class="field"><label for="a-date">Date</label><input id="a-date" type="date" required></div>
-            <button class="btn primary" type="submit">Add</button>
+          <form class="addform" id="add-form">
+            <div class="addgrid">
+              <div class="field"><label for="a-name">Name</label><input id="a-name" required placeholder="Course fee"></div>
+              <div class="field"><label for="a-amt">Amount (₹)</label><input id="a-amt" inputmode="decimal" required placeholder="2500"></div>
+              <div class="field"><label for="a-date">Date</label><input id="a-date" type="date" required></div>
+              <button class="btn primary" type="submit">Add</button>
+            </div>
+            <div class="addopts">
+              <div class="field">
+                <span class="optlabel" id="a-status-label">Status</span>
+                <div class="seg" role="radiogroup" aria-labelledby="a-status-label">
+                  <label><input type="radio" name="a-status" value="pending" checked><span>Pending</span></label>
+                  <label><input type="radio" name="a-status" value="paid"><span>Paid</span></label>
+                  <label><input type="radio" name="a-status" value="cancelled"><span>Cancelled</span></label>
+                  <label><input type="checkbox" id="a-delayed"><span>Delayed</span></label>
+                </div>
+              </div>
+              <div class="field">
+                <span class="optlabel">Also add an amount (optional)</span>
+                <div class="extragrid">
+                  <div class="field"><label for="a-awaiting">Awaiting income</label><input id="a-awaiting" inputmode="decimal" placeholder="0"></div>
+                  <div class="field"><label for="a-received">Awaiting income received</label><input id="a-received" inputmode="decimal" placeholder="0"></div>
+                  <div class="field"><label for="a-we-paid">We paid</label><input id="a-we-paid" inputmode="decimal" placeholder="0"></div>
+                  <div class="field"><label for="a-excess">Excess paid</label><input id="a-excess" inputmode="decimal" placeholder="0"></div>
+                  <div class="field"><label for="a-part">Part paid pending</label><input id="a-part" inputmode="decimal" placeholder="0"></div>
+                </div>
+              </div>
+            </div>
           </form>
         </div>
       </details>
@@ -222,6 +245,6 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=32"></script>
+  <script src="script.js?v=33"></script>
 </body>
 </html>

@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from calendar_export import build_calendar_workbook
 from database import USING_POSTGRES, get_db, init_db
 from report import build_report_pdf, filter_items, scope_label
-from schemas import AmountUpdate, CategoryUpdate, DescriptionUpdate, ImportRequest, PaymentCreate, PaymentOut, StatusUpdate
+from schemas import AmountUpdate, CategoryUpdate, DescriptionUpdate, ImportRequest, PaymentAdd, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
     decode_text,
@@ -238,16 +238,24 @@ def list_payments(month: Optional[str] = None, db: sqlite3.Connection = Depends(
 
 
 @app.post("/api/payments", response_model=PaymentOut, status_code=201)
-def create_payment(payload: PaymentCreate, db: sqlite3.Connection = Depends(get_db)):
+def create_payment(payload: PaymentAdd, db: sqlite3.Connection = Depends(get_db)):
     new_key = duplicate_key(payload.name, payload.amount, payload.date.isoformat())
     if new_key in existing_keys(db):
         raise HTTPException(
             status_code=409,
             detail="This payment is already in the list (same name, amount and date).",
         )
+    day = payload.date.isoformat()
+    new_date = next_day(day) if payload.delayed else None  # delayed means: the payment moves to the next day
+    extras = [
+        round(value, 2) if value else None
+        for value in (payload.awaiting_amount, payload.received_amount, payload.we_paid_amount,
+                      payload.excess_amount, payload.part_pending_amount)
+    ]
     cur = db.execute(
-        "INSERT INTO payments (name, amount, date) VALUES (?, ?, ?)",
-        (payload.name.strip(), payload.amount, payload.date.isoformat()),
+        "INSERT INTO payments (name, amount, date, status, new_date, awaiting_amount, received_amount, "
+        "we_paid_amount, excess_amount, part_pending_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (payload.name.strip(), payload.amount, day, payload.status, new_date, *extras),
     )
     db.commit()
     created = dict(db.execute("SELECT * FROM payments WHERE id = ?", (cur.lastrowid,)).fetchone())

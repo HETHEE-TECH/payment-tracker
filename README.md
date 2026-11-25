@@ -21,11 +21,12 @@ Monthly payment tracker. Import `name, amount, date` from a **CSV, TSV, text, Ex
   - **Excess paid** (tan): what was paid on top of the amount, for example 2,000 to pay but 3,000 paid: type 1,000.
   - **Part paid pending** (orange): the pending part of a part payment.
   They can be used together with the status and with each other. Each shows as a tag on the row. Click the button again to change or remove the amount.
+- **Add one payment** has the same choices as the list: Status (Pending, Paid, Cancelled), Delayed, and the optional amounts Awaiting income, Awaiting income received, We paid, Excess paid and Part paid pending. They are saved with the payment, and the stored Excel gets the colour right away.
 - **Edit** (next to Remove) changes a payment's name, amount or date. The stored Excel files follow: the payment is taken out of
   its old place and put in the new one, also when the new date is in another week or month. A delayed payment moves along with its date.
   The description box is a larger box of several lines; Enter saves it and Shift+Enter starts a new line.
 - The typed-in amounts are never added to the dashboard's Total, Paid, Pending, Delayed or Cancelled numbers. Each one has its own card.
-- A payment that has an **Awaiting income** amount is left out of **Total amount** and **Still to pay** (dashboard and PDF report). It still shows in its own status card, the pie chart, the month rows and the list.
+- **Total amount** adds only Paid, Delayed and Pending payments. Cancelled payments are left out, and so is a payment that has a balance amount (Awaiting income, Awaiting income received, We paid, Excess paid or Part paid pending), unless it is Paid: a Paid payment always counts in the Total, also when it has one of those amounts. **Still to pay** follows the same rule. Other cards, the pie chart, the month rows and the list still show every payment. Same rule in the PDF report.
 
 ## Structure
 
@@ -167,7 +168,7 @@ CORS is already enabled in the backend.
 | Method | Path | What it does |
 | --- | --- | --- |
 | GET | `/api/payments?month=2026-11` | List payments, optionally for one month |
-| POST | `/api/payments` | Add one payment `{name, amount, date}`. Also writes it into the stored Excel file of its month |
+| POST | `/api/payments` | Add one payment `{name, amount, date}` and optionally `status` (`pending`/`paid`/`cancelled`), `delayed`, `awaiting_amount`, `received_amount`, `we_paid_amount`, `excess_amount`, `part_pending_amount`. Also writes it into the stored Excel file of its month |
 | PATCH | `/api/payments/{id}/status` | Send `{"status": "pending" \| "paid" \| "cancelled"}` and/or `{"delayed": true \| false}`. Also colours the payment in the stored Excel file |
 | PUT | `/api/payments/{id}` | Edit `name`, `amount` and `date` (409 when another payment has the same three). Updates the stored Excel files |
 | PUT | `/api/payments/{id}/category` | Set (`{"category": "Fees"}`) or clear (`{"category": null}`) the category |
