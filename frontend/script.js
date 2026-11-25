@@ -23,6 +23,11 @@ const EXTRA_KINDS = {
   part_pending: { field: "part_pending_amount", short: "Part paid pending", label: "Pending amount (the part still to pay)", cls: "part", words: /pending|balance|remain|left|due/i },
 };
 
+// Total amount and Still to pay only take payments that are Paid, Delayed or Pending (not Cancelled) and have no balance amount
+// (Awaiting income, Awaiting income received, We paid, Excess paid, Part paid pending). A Paid payment always counts, with or without those.
+const hasExtra = (i) => Object.values(EXTRA_KINDS).some((kind) => Boolean(i[kind.field]));
+const countsInTotal = (i) => (mainStatus(i) === "paid" ? true : mainStatus(i) === "cancelled" ? false : !hasExtra(i));
+
 const pad = (n) => String(n).padStart(2, "0");
 const today = (() => {
   const t = new Date();
@@ -495,12 +500,12 @@ function summarize(items) {
   items.forEach((i) => {
     const status = mainStatus(i);
     const delayed = isDelayed(i);
-    if (!i.awaiting_amount) add(s.total, i); // a payment that has Awaiting income is not part of Total amount or Still to pay
+    if (countsInTotal(i)) add(s.total, i); // Total amount: Paid, Delayed and Pending only, and no payment with a balance amount (unless it is Paid)
     add(s.slices[slice(i)], i); // each payment once: this feeds the pie chart and the bar
     if (status === "paid" || status === "cancelled") add(s[status], i);
     else if (!delayed) add(s.pending, i);
     if (delayed) add(s.delayed, i); // Delayed counts every delayed payment, also one that is Paid or Cancelled as well
-    if (status === "pending" && !i.awaiting_amount) add(s.to_pay, i); // not paid and not cancelled, delayed or not
+    if (status === "pending" && !hasExtra(i)) add(s.to_pay, i); // not paid and not cancelled, delayed or not
     Object.values(EXTRA_KINDS).forEach((kind) => { // typed-in amounts: only in their own card, never in the numbers above
       if (i[kind.field]) { s.extras[kind.field].count++; s.extras[kind.field].amount += i[kind.field]; }
     });

@@ -34,6 +34,22 @@ FONT_DIRS = [os.path.join(os.path.dirname(__file__), "fonts"), "/usr/share/fonts
 
 # ---------- the same rules as the page ----------
 
+def has_extra(item: dict) -> bool:
+    """True when the payment has a balance amount: Awaiting income, received, We paid, Excess paid or Part paid pending."""
+    return any(item.get(field) for _key, field, _name, _color in EXTRAS)
+
+
+def counts_in_total(item: dict) -> bool:
+    """Total amount takes Paid, Delayed and Pending payments without a balance amount; a Paid payment always counts;
+    Cancelled never does."""
+    status = item.get("status", "pending")
+    if status == "paid":
+        return True
+    if status == "cancelled":
+        return False
+    return not has_extra(item)
+
+
 def is_delayed(item: dict) -> bool:
     return bool(item.get("new_date")) or item.get("status") == "delayed"
 
@@ -95,7 +111,7 @@ def summarize(items: List[dict]) -> dict:
 
     for i in items:
         status = main_status(i)
-        if not i.get("awaiting_amount"):  # a payment with Awaiting income is not part of Total amount or Still to pay
+        if counts_in_total(i):
             add(s["total"], i)
         add(s["slices"][slice_of(i)], i)
         if status in ("paid", "cancelled"):
@@ -104,7 +120,7 @@ def summarize(items: List[dict]) -> dict:
             add(s["pending"], i)
         if is_delayed(i):
             add(s["delayed"], i)
-        if status == "pending" and not i.get("awaiting_amount"):
+        if status == "pending" and not has_extra(i):
             add(s["to_pay"], i)
         for _key, field, _name, _color in EXTRAS:
             if i.get(field):
@@ -244,7 +260,7 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
     # totals
     big = ParagraphStyle("big", fontName=bold, fontSize=17, leading=21)
     story.append(table(
-        [[para("Total amount (without Awaiting income payments)", small), para("Still to pay", small)],
+        [[para("Total amount (Paid, Delayed, Pending)", small), para("Still to pay", small)],
          [Paragraph(escape(money(total)), big), Paragraph(escape(money(s["to_pay"]["amount"])), big)],
          [para(f"{s['total']['count']} payments", small), para(f"{s['to_pay']['count']} payments", small)]],
         [90 * mm, 90 * mm], header=False))
