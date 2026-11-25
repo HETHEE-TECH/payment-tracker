@@ -1058,7 +1058,17 @@ document.querySelectorAll("#add-form input[data-extra]").forEach((choice) =>
     syncExtraBoxes();
     if (choice.checked) document.getElementById(choice.dataset.extra).focus();
   }));
-document.getElementById("add-form").addEventListener("reset", () => setTimeout(syncExtraBoxes));
+document.getElementById("add-form").addEventListener("reset", () => setTimeout(() => {
+  syncExtraBoxes();
+  document.querySelectorAll('input[name="a-status"]').forEach((r) => { r.dataset.was = "0"; });
+}));
+// The status choice is optional: nothing is chosen at first, and clicking the chosen one again unchooses it.
+const statusRadios = document.querySelectorAll('input[name="a-status"]');
+statusRadios.forEach((radio) => radio.addEventListener("click", () => {
+  if (radio.dataset.was === "1") { radio.checked = false; radio.dataset.was = "0"; return; }
+  statusRadios.forEach((r) => { r.dataset.was = "0"; });
+  radio.dataset.was = "1";
+}));
 document.getElementById("add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const number = (id) => {
@@ -1069,7 +1079,7 @@ document.getElementById("add-form").addEventListener("submit", async (e) => {
     name: document.getElementById("a-name").value.trim(),
     amount: parseFloat(document.getElementById("a-amt").value.replace(/[^0-9.]/g, "")),
     date: document.getElementById("a-date").value,
-    status: document.querySelector('input[name="a-status"]:checked').value,
+    status: (document.querySelector('input[name="a-status"]:checked') || { value: "pending" }).value, // nothing chosen means pending
     delayed: document.getElementById("a-delayed").checked,
     awaiting_amount: number("a-awaiting"),
     received_amount: number("a-received"),
