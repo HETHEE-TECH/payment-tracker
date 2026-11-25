@@ -33,7 +33,7 @@ from utils import (
     payments_to_text,
     sniff_image,
 )
-from xlsx_sync import apply_payment, remove_payment
+from xlsx_sync import apply_payment, remove_payment, remove_payments
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
@@ -559,12 +559,68 @@ def download_file(file_id: int, db: sqlite3.Connection = Depends(get_db)):
     )
 
 
-@app.delete("/api/files/{file_id}", status_code=204)
+def parse_stored_file(filename: str, data: bytes):
+    """The payments a stored file holds (the same reading as Import). An unreadable file gives an empty list."""
+    name = (filename or "").lower()
+    try:
+        if name.endswith((".csv", ".tsv", ".txt")):
+            good, _ = parse_import_text(decode_text(data))
+        elif name.endswith((".xlsx", ".xlsm")):
+            good, _ = parse_xlsx(data)
+        elif name.endswith(".xls"):
+            good, _ = parse_xls(data)
+        elif name.endswith(".ods"):
+            good, _ = parse_ods(data)
+        elif name.endswith(".docx"):
+            good, _ = parse_docx(data)
+        elif name.endswith(".pdf"):
+            good, _ = parse_pdf(data)
+        else:
+            return []
+    except Exception:
+        return []
+    return good
+
+
+@app.delete("/api/files/{file_id}")
 def delete_file(file_id: int, db: sqlite3.Connection = Depends(get_db)):
-    cur = db.execute("DELETE FROM files WHERE id = ?", (file_id,))
-    db.commit()
-    if cur.rowcount == 0:
+    """Deletes a stored file and the payments that were imported from it (the payments the file holds).
+    The other stored Excel files lose those payments too, so every sheet matches the list."""
+    row = db.execute("SELECT id, filename, data FROM files WHERE id = ?", (file_id,)).fetchone()
+    if row is None:
         raise HTTPException(status_code=404, detail="File not found")
+    keys = {duplicate_key(name, amount, day) for name, amount, day, *_ in parse_stored_file(row["filename"], bytes(row["data"]))}
+    gone = []
+    if keys:
+        for payment in db.execute("SELECT id, name, amount, date FROM payments").fetchall():
+            if duplicate_key(payment["name"], payment["amount"], payment["date"]) in keys:
+                gone.append(dict(payment))
+    for payment in gone:
+        db.execute("DELETE FROM payment_images WHERE payment_id = ?", (payment["id"],))
+        db.execute("DELETE FROM payments WHERE id = ?", (payment["id"],))
+    db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    db.commit()
+    sync_error = None
+    if gone:
+        with _SYNC_LOCK:
+            try:
+                others = db.execute(
+                    "SELECT id, filename, data FROM files WHERE content_type = ? ORDER BY id"
+                    + (" FOR UPDATE" if USING_POSTGRES else ""),
+                    (FILE_TYPES[".xlsx"],),
+                ).fetchall()
+                for other in others:
+                    try:
+                        new_data, _count = remove_payments(bytes(other["data"]), gone)
+                    except Exception as error:  # one unreadable file must not block the others
+                        sync_error = f"{other['filename']}: {error}"
+                        continue
+                    if new_data is not None:
+                        db.execute("UPDATE files SET data = ?, size = ? WHERE id = ?", (new_data, len(new_data), other["id"]))
+                db.commit()
+            except Exception as error:
+                sync_error = str(error)
+    return {"deleted_payments": len(gone), "sync_error": sync_error}
 
 
 # ---------- payment images ----------

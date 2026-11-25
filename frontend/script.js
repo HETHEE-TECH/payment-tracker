@@ -802,8 +802,14 @@ async function loadFiles() {
 document.getElementById("filelist").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-file-del]");
   if (!b) return;
-  if (!window.confirm("Delete this stored file? The payments already imported from it stay in the list.")) return;
-  try { await api("/files/" + b.dataset.fileDel, { method: "DELETE" }); loadFiles(); } catch (err) { showError(err.message); }
+  if (!window.confirm("Delete this stored file AND the payments that were imported from it? This cannot be undone.")) return;
+  try {
+    const r = await api("/files/" + b.dataset.fileDel, { method: "DELETE" });
+    await refresh(); // the payments of the file are gone from the list
+    loadFiles();
+    showNotice(`File deleted. ${r.deleted_payments} ${r.deleted_payments === 1 ? "payment" : "payments"} removed from the list.`);
+    if (r.sync_error) showError("Done, but another stored Excel could not be updated: " + r.sync_error);
+  } catch (err) { showError(err.message); }
 });
 
 // ---------- edit a payment: name, amount and date ----------

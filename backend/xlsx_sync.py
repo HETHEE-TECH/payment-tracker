@@ -494,6 +494,27 @@ def _describe_flat(ws, payment: dict) -> bool:
     return True
 
 
+def remove_payments(data: bytes, payments) -> Tuple[Optional[bytes], int]:
+    """Takes many payments out of one stored .xlsx, opening the file only once. Returns (new_bytes or None, how many were removed)."""
+    workbook = openpyxl.load_workbook(io.BytesIO(data))
+    removed = 0
+    for payment in payments:
+        year, month, day = (int(part) for part in payment["date"].split("-"))
+        sheet = next((ws for ws in workbook.worksheets if _sheet_month(ws) == (year, month)), None)
+        if sheet is not None:
+            _widen_to_three(sheet, year, month)
+            changed = _remove_calendar(sheet, year, month, day, payment["name"], float(payment["amount"]))
+        else:
+            flat_sheet = next((ws for ws in workbook.worksheets if _flat_rows(ws)), None)
+            changed = bool(flat_sheet is not None and _remove_flat(flat_sheet, payment))
+        removed += 1 if changed else 0
+    if not removed:
+        return None, 0
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue(), removed
+
+
 def apply_payment(data: bytes, payment: dict, add_if_missing: bool = True) -> Tuple[Optional[bytes], str]:
     """
     Updates one stored .xlsx for a payment {name, amount, date, status}.

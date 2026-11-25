@@ -150,7 +150,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   Characters the font does not have (for example Tamil letters) are shown as boxes in the PDF.
 - Removing a payment (Remove button) also takes it out of the stored Excel files: its cells are cleared,
   the items under it move up, an emptied extra row is deleted and the SUM formulas shrink back.
-- Delete all payments does not change the stored files. Delete a stored file with its own Delete file button.
+- Delete all payments does not change the stored files. Delete a stored file with its own Delete file button: it also removes the payments that file holds from the list (and from the other stored Excel files).
 - Only .xlsx files are updated by the app. Files of other types (CSV, .xls, .xlsm, .ods, Word, PDF) are kept as
   they were imported: the app cannot write into them.
 
