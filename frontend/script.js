@@ -1044,6 +1044,21 @@ document.getElementById("list").addEventListener("change", async (e) => {
 });
 
 document.getElementById("a-date").value = today;
+// In Add one payment, each amount choice (Awaiting income, We paid, ...) shows its own amount box when it is chosen.
+function syncExtraBoxes() {
+  document.querySelectorAll("#add-form input[data-extra]").forEach((choice) => {
+    const input = document.getElementById(choice.dataset.extra);
+    input.parentElement.hidden = !choice.checked;
+    input.required = choice.checked;
+    if (!choice.checked) input.value = "";
+  });
+}
+document.querySelectorAll("#add-form input[data-extra]").forEach((choice) =>
+  choice.addEventListener("change", () => {
+    syncExtraBoxes();
+    if (choice.checked) document.getElementById(choice.dataset.extra).focus();
+  }));
+document.getElementById("add-form").addEventListener("reset", () => setTimeout(syncExtraBoxes));
 document.getElementById("add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const number = (id) => {

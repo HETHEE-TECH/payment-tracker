@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payment Tracker</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css?v=33">
+  <link rel="stylesheet" href="style.css?v=34">
 </head>
 <body>
   <div class="wrap">
@@ -114,13 +114,20 @@
                 </div>
               </div>
               <div class="field">
-                <span class="optlabel">Also add an amount (optional)</span>
+                <span class="optlabel" id="a-extra-label">Amounts (choose one or more, then type the amount)</span>
+                <div class="seg" role="group" aria-labelledby="a-extra-label">
+                  <label><input type="checkbox" data-extra="a-awaiting"><span>Awaiting income</span></label>
+                  <label><input type="checkbox" data-extra="a-received"><span>Awaiting income received</span></label>
+                  <label><input type="checkbox" data-extra="a-we-paid"><span>We paid</span></label>
+                  <label><input type="checkbox" data-extra="a-excess"><span>Excess paid</span></label>
+                  <label><input type="checkbox" data-extra="a-part"><span>Part paid pending</span></label>
+                </div>
                 <div class="extragrid">
-                  <div class="field"><label for="a-awaiting">Awaiting income</label><input id="a-awaiting" inputmode="decimal" placeholder="0"></div>
-                  <div class="field"><label for="a-received">Awaiting income received</label><input id="a-received" inputmode="decimal" placeholder="0"></div>
-                  <div class="field"><label for="a-we-paid">We paid</label><input id="a-we-paid" inputmode="decimal" placeholder="0"></div>
-                  <div class="field"><label for="a-excess">Excess paid</label><input id="a-excess" inputmode="decimal" placeholder="0"></div>
-                  <div class="field"><label for="a-part">Part paid pending</label><input id="a-part" inputmode="decimal" placeholder="0"></div>
+                  <div class="field" hidden><label for="a-awaiting">Awaiting income amount (₹)</label><input id="a-awaiting" inputmode="decimal" placeholder="Amount"></div>
+                  <div class="field" hidden><label for="a-received">Awaiting income received amount (₹)</label><input id="a-received" inputmode="decimal" placeholder="Amount"></div>
+                  <div class="field" hidden><label for="a-we-paid">We paid amount (₹)</label><input id="a-we-paid" inputmode="decimal" placeholder="Amount"></div>
+                  <div class="field" hidden><label for="a-excess">Excess paid amount (₹)</label><input id="a-excess" inputmode="decimal" placeholder="Amount"></div>
+                  <div class="field" hidden><label for="a-part">Part paid pending amount (₹)</label><input id="a-part" inputmode="decimal" placeholder="Amount"></div>
                 </div>
               </div>
             </div>
@@ -245,6 +252,6 @@
     </div>
   </dialog>
 
-  <script src="script.js?v=33"></script>
+  <script src="script.js?v=34"></script>
 </body>
 </html>
