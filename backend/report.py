@@ -205,8 +205,10 @@ def indian(amount: float) -> str:
     return ("-" if amount < 0 else "") + text
 
 
-def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, today: Optional[date] = None) -> bytes:
-    """selected: the payments of the filters. trend_items: the same without the date filters (for the month rows)."""
+def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, today: Optional[date] = None,
+                     only: bool = False) -> bytes:
+    """selected: the payments of the filters. trend_items: the same without the date filters (for the month rows).
+    only: a status was chosen, so the report leaves out every status, column and amount that has no payment in it."""
     from reportlab.graphics.charts.barcharts import VerticalBarChart
     from reportlab.graphics.charts.piecharts import Pie
     from reportlab.graphics.shapes import Drawing, Rect, String
@@ -247,6 +249,8 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
 
     s = summarize(selected)
     total = s["total"]["amount"]
+    # Only pending payments that have an amount (for example the Awaiting income filter): they are not "Pending", so no status split.
+    amount_only = bool(only and selected and all(main_status(i) == "pending" and not is_delayed(i) and has_extra(i) for i in selected))
     base = sum(s["slices"][key]["amount"] for key, _name in STATUSES)  # every payment, for the shares and the pie chart
     def pct(part):
         if not base or part <= 0:
@@ -261,34 +265,50 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
 
     # totals
     big = ParagraphStyle("big", fontName=bold, fontSize=17, leading=21)
-    story.append(table(
-        [[para("Total amount (Paid, Delayed, Pending)", small), para("Still to pay", small)],
-         [Paragraph(escape(money(total)), big), Paragraph(escape(money(s["to_pay"]["amount"])), big)],
-         [para(f"{s['total']['count']} payments", small), para(f"{s['to_pay']['count']} payments", small)]],
-        [90 * mm, 90 * mm], header=False))
+    if only and not s["to_pay"]["count"]:  # for example Paid only: there is nothing still to pay
+        story.append(table(
+            [[para("Total amount (Paid, Delayed, Pending)", small)],
+             [Paragraph(escape(money(total)), big)],
+             [para(f"{s['total']['count']} payments", small)]],
+            [180 * mm], header=False))
+    else:
+        story.append(table(
+            [[para("Total amount (Paid, Delayed, Pending)", small), para("Still to pay", small)],
+             [Paragraph(escape(money(total)), big), Paragraph(escape(money(s["to_pay"]["amount"])), big)],
+             [para(f"{s['total']['count']} payments", small), para(f"{s['to_pay']['count']} payments", small)]],
+            [90 * mm, 90 * mm], header=False))
 
     # the four statuses
-    story.append(Paragraph("Status", h2))
     rows = [["Status", "Payments", "Amount", "Share of total"]]
     for key, name in STATUSES:
+        if only and not s[key]["count"]:
+            continue
         rows.append([name, s[key]["count"], money(s[key]["amount"]), pct(s[key]["amount"])])
-    t = table(rows, [60 * mm, 30 * mm, 50 * mm, 40 * mm])
-    t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
-    story += [t, Spacer(1, 3), Paragraph(
-        "A payment that is both Paid and Delayed is in the Paid row and in the Delayed row, so the rows can add up to more than the total.", small)]
+    if len(rows) > 1:
+        story.append(Paragraph("Status", h2))
+        t = table(rows, [60 * mm, 30 * mm, 50 * mm, 40 * mm])
+        t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
+        story += [t]
+        if not only:
+            story += [Spacer(1, 3), Paragraph(
+                "A payment that is both Paid and Delayed is in the Paid row and in the Delayed row, so the rows can add up to more than the total.", small)]
 
     # the typed-in amounts
-    story.append(Paragraph("Typed-in amounts (not part of the total)", h2))
     rows = [["Amount", "Payments", "Amount"]]
     for _key, field, name, _color in EXTRAS:
+        if only and not s["extras"][field]["count"]:
+            continue
         rows.append([name, s["extras"][field]["count"], money(s["extras"][field]["amount"])])
-    t = table(rows, [90 * mm, 40 * mm, 50 * mm])
-    t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
-    story.append(t)
+    if len(rows) > 1:
+        story.append(Paragraph("Typed-in amounts (not part of the total)", h2))
+        t = table(rows, [90 * mm, 40 * mm, 50 * mm])
+        t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
+        story.append(t)
 
     # pie chart: each payment in one slice
-    slices = [(name, s["slices"][key]["amount"], STATUS_COLORS[key]) for key, name in STATUSES]
-    if base > 0:
+    slices = [(name, s["slices"][key]["amount"], STATUS_COLORS[key]) for key, name in STATUSES
+              if not only or s["slices"][key]["count"]]
+    if base > 0 and not amount_only:
         story.append(Paragraph("Pie chart", h2))
         drawing = Drawing(180 * mm, 62 * mm)
         pie = Pie()
@@ -316,16 +336,20 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
 
     # month-wise: numbers and, for two or more months, stacked bars
     months = month_rows(trend_items)
+    kept = [(key, name) for key, name in STATUSES if not only or any(m[key] for m in months)]  # status columns that have an amount
+    if amount_only:
+        kept = []
+    kept_month = [(key, name) for key, name in kept if key != "cancelled"]
     if months:
         story.append(Paragraph("Month-wise total", h2))
         shown_months = months[-MAX_TREND_MONTHS:]
         if len(months) > MAX_TREND_MONTHS:
             story.append(Paragraph(f"Showing the latest {MAX_TREND_MONTHS} months of {len(months)}.", small))
-        if len(shown_months) >= 2:
+        if len(shown_months) >= 2 and kept_month:
             chart = Drawing(180 * mm, 65 * mm)
             bc = VerticalBarChart()
             bc.x, bc.y, bc.width, bc.height = 22 * mm, 10 * mm, 150 * mm, 46 * mm
-            bc.data = [[m[key] for m in shown_months] for key, _name in MONTH_STATUSES]  # paid at the bottom; cancelled is not in a month's total
+            bc.data = [[m[key] for m in shown_months] for key, _name in kept_month]  # paid at the bottom; cancelled is not in a month's total
             bc.categoryAxis.categoryNames = [f"{MONTH_NAMES[int(m['key'][5:7]) - 1][:3]} {m['key'][2:4]}" for m in shown_months]
             bc.categoryAxis.style = "stacked"
             bc.categoryAxis.labels.fontName = regular
@@ -335,27 +359,29 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
             bc.valueAxis.valueMin = 0
             bc.valueAxis.labelTextFormat = lambda v: indian(v)
             bc.groupSpacing = 6
-            for n, (key, _name) in enumerate(MONTH_STATUSES):
+            for n, (key, _name) in enumerate(kept_month):
                 bc.bars[n].fillColor = colors.HexColor(STATUS_COLORS[key])
                 bc.bars[n].strokeColor = None
             chart.add(bc)
-            for n, (key, name) in enumerate(MONTH_STATUSES):  # what the colours mean
+            for n, (key, name) in enumerate(kept_month):  # what the colours mean
                 x = 24 * mm + n * 30 * mm
                 chart.add(Rect(x, 59 * mm, 3 * mm, 3 * mm, fillColor=colors.HexColor(STATUS_COLORS[key]), strokeColor=None))
                 chart.add(String(x + 4.5 * mm, 59.4 * mm, name, fontName=regular, fontSize=7.5))
             story.append(chart)
-        rows = [["Month", "Total", "Paid", "Pending", "Delayed", "Cancelled", "Payments"]]
+        columns = [key for key, _name in kept]
+        rows = [["Month", "Total"] + [name for _key, name in kept] + ["Payments"]]
         for m in reversed(shown_months):
-            rows.append([f"{MONTH_NAMES[int(m['key'][5:7]) - 1]} {m['key'][:4]}", money(m["total"]), money(m["paid"]), money(m["pending"]),
-                         money(m["delayed"]), money(m["cancelled"]), m["count"]])
+            rows.append([f"{MONTH_NAMES[int(m['key'][5:7]) - 1]} {m['key'][:4]}", money(m["total"])] + [money(m[k]) for k in columns] + [m["count"]])
         grand = {k: sum(m[k] for m in months) for k in ("total", "paid", "pending", "delayed", "cancelled", "count")}
-        rows.append(["All months", money(grand["total"]), money(grand["paid"]), money(grand["pending"]), money(grand["delayed"]),
-                     money(grand["cancelled"]), grand["count"]])
-        t = table(rows, [32 * mm, 28 * mm, 25 * mm, 25 * mm, 24 * mm, 26 * mm, 20 * mm])
+        rows.append(["All months", money(grand["total"])] + [money(grand[k]) for k in columns] + [grand["count"]])
+        widths = [38 * mm, 30 * mm] + [28 * mm] * len(columns) + [22 * mm]
+        scale = min(1.0, 180 * mm / sum(widths))
+        t = table(rows, [w * scale for w in widths])
         t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT"), ("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1), bold),
                                ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), head_bg), ("FONTSIZE", (0, 0), (-1, -1), 7.5)]))
         story.append(t)
-        story += [Spacer(1, 3), Paragraph("A month's Total does not include its Cancelled amount (the Cancelled column is shown on its own).", small)]
+        if any(key == "cancelled" for key in columns):
+            story += [Spacer(1, 3), Paragraph("A month's Total does not include its Cancelled amount (the Cancelled column is shown on its own).", small)]
 
     # the payments
     story.append(Paragraph(f"Payments ({len(selected)})", h2))
@@ -373,6 +399,8 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
             status = main_status(i).capitalize() + (" + Delayed" if is_delayed(i) and main_status(i) != "pending" else "")
             if main_status(i) == "pending" and is_delayed(i):
                 status = "Delayed"
+            elif main_status(i) == "pending" and has_extra(i):  # an amount only: named after the amount, not "Pending"
+                status = next(name for _key, field, name, _color in EXTRAS if i.get(field))
             rows.append([date.fromisoformat(i["date"]).strftime("%d %b %Y"), para(i["name"]), para(money(i["amount"]), right),
                          para(status), para(" \u00b7 ".join(notes))])
             tints.append(ROW_TINTS[slice_of(i)])

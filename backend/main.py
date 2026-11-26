@@ -350,7 +350,7 @@ def payment_report(
     selected = filter_items(rows, q, status, year, month, day, category)
     trend_items = filter_items(rows, q, status, category=category)  # every month, like the month rows on the page
     scope = scope_label(q, status, year, month, day, category)
-    pdf = build_report_pdf(selected, trend_items, scope)
+    pdf = build_report_pdf(selected, trend_items, scope, only=bool(status.strip()))  # a chosen status: only its data
     name = re.sub(r"[^A-Za-z0-9]+", "-", scope).strip("-").lower() or "all"
     return Response(
         content=pdf,
