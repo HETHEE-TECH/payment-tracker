@@ -8,7 +8,7 @@ Status = Literal["pending", "paid", "delayed", "cancelled"]
 
 class PaymentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    amount: float = Field(gt=0)
+    amount: float = Field(ge=0)
     date: Date
 
 
