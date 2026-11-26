@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from calendar_export import build_calendar_workbook
 from database import USING_POSTGRES, get_db, init_db
-from report import build_report_pdf, filter_items, scope_label
+from report import build_option_report_pdf, build_report_pdf, filter_items, scope_label
 from schemas import AmountUpdate, CategoryUpdate, DescriptionUpdate, ImportRequest, PaymentAdd, PaymentCreate, PaymentOut, StatusUpdate
 from utils import (
     check_basic_auth,
@@ -350,7 +350,11 @@ def payment_report(
     selected = filter_items(rows, q, status, year, month, day, category)
     trend_items = filter_items(rows, q, status, category=category)  # every month, like the month rows on the page
     scope = scope_label(q, status, year, month, day, category)
-    pdf = build_report_pdf(selected, trend_items, scope, only=bool(status.strip()))  # a chosen status: only its data
+    option = status.strip()
+    if option:  # one option chosen (Paid, Delayed, ..., or a typed-in amount): a report with only that option's data
+        pdf = build_option_report_pdf(selected, trend_items, option, scope)
+    else:
+        pdf = build_report_pdf(selected, trend_items, scope)
     name = re.sub(r"[^A-Za-z0-9]+", "-", scope).strip("-").lower() or "all"
     return Response(
         content=pdf,

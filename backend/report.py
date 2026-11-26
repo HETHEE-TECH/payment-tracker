@@ -420,3 +420,201 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
     SimpleDocTemplate(buffer, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=14 * mm, bottomMargin=16 * mm,
                       title="Payment report", author="Payment Tracker").build(story, onFirstPage=footer, onLaterPages=footer)
     return buffer.getvalue()
+
+# ---------- a report for one chosen option (Paid, Delayed, Pending, Cancelled or one of the typed-in amounts) ----------
+
+OPTION_PALETTE = ["#2f7de1", "#e0752b", "#8a5cd0", "#1f9d5a", "#d6453d", "#139c96", "#c2418a", "#a8693a"]
+OTHERS_COLOR = "#9aa5a0"
+MAX_PIE_NAMES = 7
+
+
+def option_info(option: str):
+    """(name, colour, field) of a chosen option. field is the column that holds the typed-in amount, or None for a status."""
+    for key, name in STATUSES:
+        if key == option:
+            return name, STATUS_COLORS[key], None
+    for key, field, name, color in EXTRAS:
+        if key == option:
+            return name, color, field
+    return option.capitalize(), "#5b7fa6", None
+
+
+def build_option_report_pdf(selected: List[dict], trend_items: List[dict], option: str, scope: str,
+                            today: Optional[date] = None) -> bytes:
+    """The report of ONE option, with only that option's data: its amount, a pie chart of the payment names that make it up,
+    its months and its payments. For Paid, Delayed, Pending and Cancelled the amount is the payments' amount; for Awaiting income,
+    Awaiting income received, We paid, Excess paid and Part paid pending it is the typed-in amount."""
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.piecharts import Pie
+    from reportlab.graphics.shapes import Drawing, Rect, String
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    name, color, field = option_info(option)
+    value = (lambda i: float(i.get(field) or 0)) if field else (lambda i: float(i["amount"]))
+    amount_label = f"{name} amount" if not field else f"{name} (typed-in amount)"
+
+    regular, bold, rupee = _fonts()
+    money = lambda n: rupee + indian(n)  # noqa: E731
+    today = today or date.today()
+    text = ParagraphStyle("t", fontName=regular, fontSize=9, leading=12)
+    small = ParagraphStyle("s", parent=text, fontSize=8, leading=10, textColor=colors.HexColor("#5b6862"))
+    h1 = ParagraphStyle("h1", fontName=bold, fontSize=20, leading=24, spaceAfter=2)
+    h2 = ParagraphStyle("h2", fontName=bold, fontSize=12, leading=15, spaceBefore=12, spaceAfter=5, keepWithNext=1)
+    big = ParagraphStyle("big", fontName=bold, fontSize=17, leading=21)
+    cell = ParagraphStyle("c", parent=text, fontSize=8.5, leading=10.5)
+    right = ParagraphStyle("r", parent=cell, alignment=2)
+    para = lambda v, style=cell: Paragraph(escape(str(v)), style)  # noqa: E731
+    line = colors.HexColor("#cdd5d1")
+    head_bg = colors.HexColor("#eef2f0")
+
+    def table(rows, widths, tints=None, header=True):
+        t = Table(rows, colWidths=widths, repeatRows=1 if header else 0)
+        style = [
+            ("FONTNAME", (0, 0), (-1, -1), regular), ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("GRID", (0, 0), (-1, -1), 0.4, line), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+        if header:
+            style += [("BACKGROUND", (0, 0), (-1, 0), head_bg), ("FONTNAME", (0, 0), (-1, 0), bold)]
+        for n, tint in enumerate(tints or [], start=1 if header else 0):
+            if tint:
+                style.append(("BACKGROUND", (0, n), (-1, n), colors.HexColor(tint)))
+        t.setStyle(TableStyle(style))
+        return t
+
+    total = sum(value(i) for i in selected)
+    story = [
+        Paragraph(escape(f"{name} report"), h1),
+        Paragraph(escape(scope), ParagraphStyle("sc", parent=text, fontSize=11, leading=14)),
+        Paragraph(f"Made on {today.strftime('%d %B %Y')}", small),
+        Spacer(1, 8),
+        table([[para(amount_label, small)], [Paragraph(escape(money(total)), big)],
+               [para(f"{len(selected)} {'payment' if len(selected) == 1 else 'payments'}", small)]], [180 * mm], header=False),
+    ]
+
+    # pie chart: the payment names that make up this option (the biggest ones, the rest together as Others)
+    by_name: Dict[str, dict] = {}
+    for i in selected:
+        key = re_space(i["name"]).lower()
+        row = by_name.setdefault(key, {"label": re_space(i["name"]), "amount": 0.0, "count": 0})
+        row["amount"] += value(i)
+        row["count"] += 1
+    ranked = sorted((r for r in by_name.values() if r["amount"] > 0), key=lambda r: -r["amount"])
+    parts = ranked[:MAX_PIE_NAMES]
+    rest = ranked[MAX_PIE_NAMES:]
+    if rest:
+        parts.append({"label": f"Others ({len(rest)})", "amount": sum(r["amount"] for r in rest), "count": sum(r["count"] for r in rest)})
+    if total > 0 and parts:
+        story.append(Paragraph(escape(f"{name}: share of each payment name"), h2))
+        height = max(62, 12 + len(parts) * 11)
+        drawing = Drawing(180 * mm, height * mm)
+        pie = Pie()
+        pie.x, pie.y = 8 * mm, (height - 58) / 2 * mm
+        pie.width = pie.height = 54 * mm
+        pie.data = [p["amount"] for p in parts]
+        pie.labels = [f"{round(p['amount'] / total * 100)}%" if p["amount"] / total >= 0.06 else "" for p in parts]
+        pie.sideLabels = False
+        pie.simpleLabels = False
+        pie.slices.strokeColor = colors.white
+        pie.slices.strokeWidth = 1
+        pie.slices.fontName = bold
+        pie.slices.fontSize = 8
+        pie.slices.labelRadius = 0.68
+        shades = [OPTION_PALETTE[n % len(OPTION_PALETTE)] for n in range(len(parts))]
+        if rest:
+            shades[-1] = OTHERS_COLOR
+        for n, hex_color in enumerate(shades):
+            pie.slices[n].fillColor = colors.HexColor(hex_color)
+            pie.slices[n].fontColor = colors.white
+        drawing.add(pie)
+        top = height * mm - 8 * mm
+        for n, p in enumerate(parts):
+            y = top - n * 11 * mm
+            drawing.add(Rect(78 * mm, y, 4 * mm, 4 * mm, fillColor=colors.HexColor(shades[n]), strokeColor=None))
+            drawing.add(String(85 * mm, y + 0.6 * mm, p["label"][:40], fontName=bold, fontSize=9))
+            share = f"{round(p['amount'] / total * 100)}%" if p["amount"] / total >= 0.005 else "<1%"
+            drawing.add(String(85 * mm, y - 4 * mm, f"{money(p['amount'])}  ·  {share}  ·  {p['count']} {'payment' if p['count'] == 1 else 'payments'}",
+                               fontName=regular, fontSize=8.5, fillColor=colors.HexColor("#5b6862")))
+        story.append(drawing)
+
+    # month by month: only this option
+    months: Dict[str, dict] = {}
+    for i in trend_items:
+        row = months.setdefault(i["date"][:7], {"key": i["date"][:7], "amount": 0.0, "count": 0})
+        row["amount"] += value(i)
+        row["count"] += 1
+    rows_m = [months[k] for k in sorted(months)]
+    if rows_m:
+        story.append(Paragraph(escape(f"{name}: month by month"), h2))
+        shown = rows_m[-MAX_TREND_MONTHS:]
+        if len(rows_m) > MAX_TREND_MONTHS:
+            story.append(Paragraph(f"Showing the latest {MAX_TREND_MONTHS} months of {len(rows_m)}.", small))
+        if len(shown) >= 2:
+            chart = Drawing(180 * mm, 60 * mm)
+            bc = VerticalBarChart()
+            bc.x, bc.y, bc.width, bc.height = 22 * mm, 10 * mm, 150 * mm, 46 * mm
+            bc.data = [[m["amount"] for m in shown]]
+            bc.categoryAxis.categoryNames = [f"{MONTH_NAMES[int(m['key'][5:7]) - 1][:3]} {m['key'][2:4]}" for m in shown]
+            bc.categoryAxis.labels.fontName = regular
+            bc.categoryAxis.labels.fontSize = 7
+            bc.valueAxis.labels.fontName = regular
+            bc.valueAxis.labels.fontSize = 7
+            bc.valueAxis.valueMin = 0
+            bc.valueAxis.labelTextFormat = lambda v: indian(v)
+            bc.groupSpacing = 8
+            bc.bars[0].fillColor = colors.HexColor(color)
+            bc.bars[0].strokeColor = None
+            chart.add(bc)
+            story.append(chart)
+        rows = [["Month", amount_label, "Payments"]]
+        for m in reversed(shown):
+            rows.append([f"{MONTH_NAMES[int(m['key'][5:7]) - 1]} {m['key'][:4]}", money(m["amount"]), m["count"]])
+        rows.append(["All months", money(sum(m["amount"] for m in rows_m)), sum(m["count"] for m in rows_m)])
+        t = table(rows, [60 * mm, 80 * mm, 40 * mm])
+        t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT"), ("FONTNAME", (0, len(rows) - 1), (-1, len(rows) - 1), bold),
+                               ("BACKGROUND", (0, len(rows) - 1), (-1, len(rows) - 1), head_bg)]))
+        story.append(t)
+
+    # the payments of this option
+    story.append(Paragraph(f"Payments ({len(selected)})", h2))
+    if selected:
+        head = ["Date", "Name", "Amount", "Typed-in" if field else "Status", "Details"]
+        rows, tints = [head], []
+        for i in selected:
+            notes = []
+            for _key, extra_field, extra_name, _color in EXTRAS:
+                if i.get(extra_field) and extra_field != field:
+                    notes.append(f"{extra_name} {money(i[extra_field])}")
+            if i.get("description"):
+                notes.append(i["description"])
+            if is_delayed(i) and i.get("new_date"):
+                notes.insert(0, f"Delayed to {date.fromisoformat(i['new_date']).strftime('%d %b %Y')}")
+            fourth = money(value(i)) if field else name
+            rows.append([date.fromisoformat(i["date"]).strftime("%d %b %Y"), para(i["name"]), para(money(i["amount"]), right),
+                         para(fourth, right if field else cell), para(" · ".join(notes))])
+            tints.append(ROW_TINTS.get(option) if not field else None)
+        story.append(table(rows, [22 * mm, 40 * mm, 25 * mm, 30 * mm, 63 * mm], tints=tints))
+    else:
+        story.append(Paragraph("No payments for these filters.", text))
+
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(regular, 7.5)
+        canvas.setFillColor(colors.HexColor("#5b6862"))
+        canvas.drawString(15 * mm, 9 * mm, f"{name} report · {scope}")
+        canvas.drawRightString(A4[0] - 15 * mm, 9 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    buffer = io.BytesIO()
+    SimpleDocTemplate(buffer, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=14 * mm, bottomMargin=16 * mm,
+                      title=f"{name} report", author="Payment Tracker").build(story, onFirstPage=footer, onLaterPages=footer)
+    return buffer.getvalue()
+
+
+def re_space(text: str) -> str:
+    return " ".join((text or "").split())

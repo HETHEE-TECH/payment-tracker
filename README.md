@@ -145,6 +145,7 @@ Every imported file is kept under **Stored files**. For calendar-style Excel fil
   **Download PNG** saves the pie chart, its legend, what it covers and the date as a picture.
 - **Month-wise trend**: a chart of the total of every month (latest 12), as stacked bars by status or as lines (the Total is a dashed
   line). Click a month to show only that month. It follows the search and status filters, not the date filters.
+- **One option, one report:** when a status/option filter is chosen (Paid, Delayed, Pending, Cancelled, Awaiting income, Awaiting income received, We paid, Excess paid, Part paid pending), the PDF has only that option's payments, with its own headline total, its own pie chart (share of each payment name), month bars in the option's colour and its own list. With no option chosen you get the full report below.
 - **Download report (PDF)** (top right of the dashboard) makes a PDF for the filters that are set: totals, status table, typed-in amounts,
   pie chart, month-wise numbers with bars and the list of payments with their details. It needs `reportlab` and
   the fonts in `backend/fonts/` (DejaVu Sans, which has the rupee sign). Without the font files it still works, with `Rs.` and Helvetica.
