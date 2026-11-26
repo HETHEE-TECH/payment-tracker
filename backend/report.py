@@ -444,15 +444,18 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     """The report of ONE option, with only that option's data: its amount, a pie chart of the payment names that make it up,
     its months and its payments. For Paid, Delayed, Pending and Cancelled the amount is the payments' amount; for Awaiting income,
     Awaiting income received, We paid, Excess paid and Part paid pending it is the typed-in amount."""
-    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.barcharts import HorizontalBarChart, VerticalBarChart
+    from reportlab.graphics.charts.linecharts import HorizontalLineChart
     from reportlab.graphics.charts.piecharts import Pie
-    from reportlab.graphics.shapes import Drawing, Rect, String
+    from reportlab.graphics.shapes import Circle, Drawing, Line, Rect, String
+    from reportlab.graphics.widgets.markers import makeMarker
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    compact = lambda v: (f"{v / 100000:.1f}L" if v >= 100000 else f"{v / 1000:.1f}k" if v >= 1000 else f"{v:.0f}")  # noqa: E731
     name, color, field = option_info(option)
     value = (lambda i: float(i.get(field) or 0)) if field else (lambda i: float(i["amount"]))
     amount_label = f"{name} amount" if not field else f"{name} (typed-in amount)"
@@ -488,16 +491,39 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         return t
 
     total = sum(value(i) for i in selected)
+    count_n = len(selected)
+    biggest = max(selected, key=value) if selected else None
+    avg = total / count_n if count_n else 0
+    tint = colors.HexColor(color)
+    tile_big = ParagraphStyle("tb", fontName=bold, fontSize=22, leading=26, textColor=colors.white)
+    tile_lbl = ParagraphStyle("tl", fontName=regular, fontSize=8, leading=10, textColor=colors.white)
+    tile_val = ParagraphStyle("tv", fontName=bold, fontSize=13, leading=16, textColor=colors.HexColor("#1b2420"))
+    tile_cap = ParagraphStyle("tc", fontName=regular, fontSize=7.5, leading=9.5, textColor=colors.HexColor("#5b6862"))
+    short = lambda s, n=18: s if len(s) <= n else s[: n - 1] + "…"  # noqa: E731
+    kpi = Table([[
+        [Paragraph(escape(amount_label.upper()), tile_lbl), Paragraph(escape(money(total)), tile_big),
+         Paragraph(f"{count_n} {'payment' if count_n == 1 else 'payments'}", tile_lbl)],
+        [Paragraph(escape(money(avg)), tile_val), Paragraph("Average per payment", tile_cap)],
+        [Paragraph(escape(money(value(biggest))) if biggest else "-", tile_val),
+         Paragraph(escape("Biggest · " + short(biggest["name"])) if biggest else "Biggest", tile_cap)],
+        [Paragraph(escape(date.fromisoformat(max(i["date"] for i in selected)).strftime("%d %b %Y")) if selected else "-", tile_val),
+         Paragraph("Latest payment", tile_cap)],
+    ]], colWidths=[66 * mm, 38 * mm, 40 * mm, 36 * mm])
+    kpi.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), tint), ("BOX", (0, 0), (-1, -1), 0.6, tint),
+        ("BACKGROUND", (1, 0), (-1, 0), colors.HexColor("#f4f7f5")), ("LINEAFTER", (1, 0), (2, 0), 0.4, line),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 9), ("TOPPADDING", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+    ]))
     story = [
         Paragraph(escape(f"{name} report"), h1),
         Paragraph(escape(scope), ParagraphStyle("sc", parent=text, fontSize=11, leading=14)),
         Paragraph(f"Made on {today.strftime('%d %B %Y')}", small),
         Spacer(1, 8),
-        table([[para(amount_label, small)], [Paragraph(escape(money(total)), big)],
-               [para(f"{len(selected)} {'payment' if len(selected) == 1 else 'payments'}", small)]], [180 * mm], header=False),
+        kpi,
     ]
 
-    # pie chart: the payment names that make up this option (the biggest ones, the rest together as Others)
+    # data for the chart: by payment name, and by month
     by_name: Dict[str, dict] = {}
     for i in selected:
         key = re_space(i["name"]).lower()
@@ -509,68 +535,183 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     rest = ranked[MAX_PIE_NAMES:]
     if rest:
         parts.append({"label": f"Others ({len(rest)})", "amount": sum(r["amount"] for r in rest), "count": sum(r["count"] for r in rest)})
-    if total > 0 and parts:
-        story.append(Paragraph(escape(f"{name}: share of each payment name"), h2))
-        height = max(62, 12 + len(parts) * 11)
-        drawing = Drawing(180 * mm, height * mm)
-        pie = Pie()
-        pie.x, pie.y = 8 * mm, (height - 58) / 2 * mm
-        pie.width = pie.height = 54 * mm
-        pie.data = [p["amount"] for p in parts]
-        pie.labels = [f"{round(p['amount'] / total * 100)}%" if p["amount"] / total >= 0.06 else "" for p in parts]
-        pie.sideLabels = False
-        pie.simpleLabels = False
-        pie.slices.strokeColor = colors.white
-        pie.slices.strokeWidth = 1
-        pie.slices.fontName = bold
-        pie.slices.fontSize = 8
-        pie.slices.labelRadius = 0.68
-        shades = [OPTION_PALETTE[n % len(OPTION_PALETTE)] for n in range(len(parts))]
-        if rest:
-            shades[-1] = OTHERS_COLOR
-        for n, hex_color in enumerate(shades):
-            pie.slices[n].fillColor = colors.HexColor(hex_color)
-            pie.slices[n].fontColor = colors.white
-        drawing.add(pie)
-        top = height * mm - 8 * mm
-        for n, p in enumerate(parts):
-            y = top - n * 11 * mm
-            drawing.add(Rect(78 * mm, y, 4 * mm, 4 * mm, fillColor=colors.HexColor(shades[n]), strokeColor=None))
-            drawing.add(String(85 * mm, y + 0.6 * mm, p["label"][:40], fontName=bold, fontSize=9))
-            share = f"{round(p['amount'] / total * 100)}%" if p["amount"] / total >= 0.005 else "<1%"
-            drawing.add(String(85 * mm, y - 4 * mm, f"{money(p['amount'])}  ·  {share}  ·  {p['count']} {'payment' if p['count'] == 1 else 'payments'}",
-                               fontName=regular, fontSize=8.5, fillColor=colors.HexColor("#5b6862")))
-        story.append(drawing)
-
-    # month by month: only this option
+    shades = [OPTION_PALETTE[n % len(OPTION_PALETTE)] for n in range(len(parts))]
+    if rest:
+        shades[-1] = OTHERS_COLOR
     months: Dict[str, dict] = {}
     for i in trend_items:
         row = months.setdefault(i["date"][:7], {"key": i["date"][:7], "amount": 0.0, "count": 0})
         row["amount"] += value(i)
         row["count"] += 1
     rows_m = [months[k] for k in sorted(months)]
+    shown = rows_m[-MAX_TREND_MONTHS:]
+    month_labels = [f"{MONTH_NAMES[int(m['key'][5:7]) - 1][:3]} {m['key'][2:4]}" for m in shown]
+    month_values = [m["amount"] for m in shown]
+
+    def legend(drawing, top, left=78):
+        for n, p in enumerate(parts):
+            y = top - n * 11 * mm
+            drawing.add(Rect(left * mm, y, 4 * mm, 4 * mm, fillColor=colors.HexColor(shades[n]), strokeColor=None))
+            drawing.add(String((left + 7) * mm, y + 0.6 * mm, p["label"][:40], fontName=bold, fontSize=9))
+            share = f"{round(p['amount'] / total * 100)}%" if p["amount"] / total >= 0.005 else "<1%"
+            drawing.add(String((left + 7) * mm, y - 4 * mm, f"{money(p['amount'])}  ·  {share}  ·  {p['count']} {'payment' if p['count'] == 1 else 'payments'}",
+                               fontName=regular, fontSize=8.5, fillColor=colors.HexColor("#5b6862")))
+
+    def style_axes(ch, horizontal=False):
+        for axis in (ch.categoryAxis, ch.valueAxis):
+            axis.labels.fontName = regular
+            axis.labels.fontSize = 7
+        ch.valueAxis.valueMin = 0
+        ch.valueAxis.labelTextFormat = lambda v: indian(v)
+
+    def chart_pie(donut):
+        height = max(62, 12 + len(parts) * 11)
+        d = Drawing(180 * mm, height * mm)
+        if donut:
+            from reportlab.graphics.charts.doughnut import Doughnut
+            pie = Doughnut()
+            pie.slices.strokeColor = colors.white
+            pie.slices.strokeWidth = 1
+        else:
+            pie = Pie()
+            pie.labels = [f"{round(p['amount'] / total * 100)}%" if p["amount"] / total >= 0.06 else "" for p in parts]
+            pie.sideLabels = False
+            pie.simpleLabels = False
+            pie.slices.strokeColor = colors.white
+            pie.slices.strokeWidth = 1
+            pie.slices.fontName = bold
+            pie.slices.fontSize = 8
+            pie.slices.labelRadius = 0.68
+        pie.x, pie.y = 8 * mm, (height - 58) / 2 * mm
+        pie.width = pie.height = 54 * mm
+        pie.data = [p["amount"] for p in parts]
+        for n, hex_color in enumerate(shades):
+            pie.slices[n].fillColor = colors.HexColor(hex_color)
+            if not donut:
+                pie.slices[n].fontColor = colors.white
+        d.add(pie)
+        if donut:  # the total in the hole
+            cx, cy = (8 + 27) * mm, (height - 58) / 2 * mm + 27 * mm
+            d.add(String(cx, cy + 1 * mm, money(total), fontName=bold, fontSize=9, textAnchor="middle"))
+            d.add(String(cx, cy - 4 * mm, "total", fontName=regular, fontSize=7.5, textAnchor="middle", fillColor=colors.HexColor("#5b6862")))
+        legend(d, height * mm - 8 * mm)
+        return d
+
+    def chart_column(labels, values, ch_title=None):
+        d = Drawing(180 * mm, 62 * mm)
+        bc = VerticalBarChart()
+        bc.x, bc.y, bc.width, bc.height = 22 * mm, 12 * mm, 150 * mm, 46 * mm
+        bc.data = [values]
+        bc.categoryAxis.categoryNames = labels
+        style_axes(bc)
+        bc.categoryAxis.labels.angle = 0 if len(labels) <= 6 else 30
+        bc.categoryAxis.labels.dy = -2 if len(labels) <= 6 else -8
+        bc.groupSpacing = 8
+        bc.bars[0].fillColor = tint
+        bc.bars[0].strokeColor = None
+        d.add(bc)
+        return d
+
+    def chart_hbar(labels, values):
+        n = len(labels)
+        h = max(40, 14 + n * 9)
+        d = Drawing(180 * mm, h * mm)
+        bc = HorizontalBarChart()
+        bc.x, bc.y, bc.width, bc.height = 38 * mm, 8 * mm, 128 * mm, (h - 12) * mm
+        bc.data = [list(reversed(values))]
+        bc.categoryAxis.categoryNames = [short(s, 22) for s in reversed(labels)]
+        style_axes(bc)
+        bc.categoryAxis.labels.boxAnchor = "e"
+        bc.barWidth = 5 * mm
+        bc.bars[0].fillColor = tint
+        bc.bars[0].strokeColor = None
+        d.add(bc)
+        return d
+
+    def chart_line(labels, values):
+        d = Drawing(180 * mm, 62 * mm)
+        lc = HorizontalLineChart()
+        lc.x, lc.y, lc.width, lc.height = 22 * mm, 12 * mm, 150 * mm, 46 * mm
+        lc.data = [values]
+        lc.categoryAxis.categoryNames = labels
+        style_axes(lc)
+        lc.lines[0].strokeColor = tint
+        lc.lines[0].strokeWidth = 2.2
+        lc.lines[0].symbol = makeMarker("FilledCircle")
+        lc.lines[0].symbol.fillColor = tint
+        lc.lines[0].symbol.size = 6
+        lc.joinedLines = 1
+        d.add(lc)
+        return d
+
+    def chart_lollipop(labels, values):
+        d = Drawing(180 * mm, 62 * mm)
+        x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
+        top = max(values) or 1
+        d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
+        step = w / len(values)
+        for n, v in enumerate(values):
+            cx = x0 + step * (n + 0.5)
+            cy = y0 + (v / top) * h
+            d.add(Line(cx, y0, cx, cy, strokeColor=tint, strokeWidth=2.4))
+            d.add(Circle(cx, cy, 2.6 * mm, fillColor=tint, strokeColor=colors.white, strokeWidth=1))
+            d.add(String(cx, y0 - 4 * mm, labels[n], fontName=regular, fontSize=7, textAnchor="middle"))
+            d.add(String(cx, cy + 3.6 * mm, compact(v), fontName=bold, fontSize=7, textAnchor="middle"))
+        return d
+
+    def chart_share_bar():
+        height = 22 + len(parts) * 11
+        d = Drawing(180 * mm, height * mm)
+        x0, w = 8 * mm, 164 * mm
+        y = (height - 14) * mm
+        x = x0
+        for n, p in enumerate(parts):
+            seg = w * p["amount"] / total
+            d.add(Rect(x, y, seg, 10 * mm, fillColor=colors.HexColor(shades[n]), strokeColor=colors.white, strokeWidth=1))
+            if seg > 14 * mm:
+                d.add(String(x + seg / 2, y + 3.2 * mm, f"{round(p['amount'] / total * 100)}%", fontName=bold, fontSize=8,
+                             fillColor=colors.white, textAnchor="middle"))
+            x += seg
+        legend(d, y - 11 * mm, left=8)
+        return d
+
+    # one kind of chart for each option, so the reports do not look the same
+    #   Paid: bars by month · Pending: names ranked · Delayed: pie · Cancelled: line by month · Awaiting income: doughnut
+    #   Awaiting income received: months ranked · We paid: bars by name · Excess paid: lollipop by month · Part paid pending: one share bar
+    KIND = {"paid": "column_month", "pending": "hbar_name", "delayed": "pie", "cancelled": "line_month", "awaiting": "donut",
+            "received": "hbar_month", "we_paid": "column_name", "excess": "lollipop_month", "part_pending": "share"}
+    kind = KIND.get(option, "column_month")
+    TITLES = {"column_month": "month by month", "hbar_name": "ranked by payment name", "pie": "share of each payment name",
+              "line_month": "trend by month", "donut": "share of each payment name", "hbar_month": "ranked by month",
+              "column_name": "amount by payment name", "lollipop_month": "month by month", "share": "split by payment name"}
+    if total > 0 and parts:
+        month_kind = kind.endswith("_month")
+        if month_kind and not shown:
+            kind = "pie"
+        story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
+        if kind == "pie" or kind == "donut":
+            story.append(chart_pie(kind == "donut"))
+        elif kind == "share":
+            story.append(chart_share_bar())
+        elif kind == "hbar_name":
+            story.append(chart_hbar([p["label"] for p in parts], [p["amount"] for p in parts]))
+        elif kind == "column_name":
+            story.append(chart_column([short(p["label"], 12) for p in parts], [p["amount"] for p in parts]))
+        elif kind == "hbar_month":
+            order = sorted(range(len(shown)), key=lambda n: -month_values[n])
+            story.append(chart_hbar([month_labels[n] for n in order], [month_values[n] for n in order]))
+        elif kind == "line_month":
+            story.append(chart_line(month_labels, month_values) if len(shown) >= 2 else chart_lollipop(month_labels, month_values))
+        elif kind == "lollipop_month":
+            story.append(chart_lollipop(month_labels, month_values))
+        else:
+            story.append(chart_column(month_labels, month_values))
+
+    # month by month table: only this option
     if rows_m:
         story.append(Paragraph(escape(f"{name}: month by month"), h2))
-        shown = rows_m[-MAX_TREND_MONTHS:]
         if len(rows_m) > MAX_TREND_MONTHS:
             story.append(Paragraph(f"Showing the latest {MAX_TREND_MONTHS} months of {len(rows_m)}.", small))
-        if len(shown) >= 2:
-            chart = Drawing(180 * mm, 60 * mm)
-            bc = VerticalBarChart()
-            bc.x, bc.y, bc.width, bc.height = 22 * mm, 10 * mm, 150 * mm, 46 * mm
-            bc.data = [[m["amount"] for m in shown]]
-            bc.categoryAxis.categoryNames = [f"{MONTH_NAMES[int(m['key'][5:7]) - 1][:3]} {m['key'][2:4]}" for m in shown]
-            bc.categoryAxis.labels.fontName = regular
-            bc.categoryAxis.labels.fontSize = 7
-            bc.valueAxis.labels.fontName = regular
-            bc.valueAxis.labels.fontSize = 7
-            bc.valueAxis.valueMin = 0
-            bc.valueAxis.labelTextFormat = lambda v: indian(v)
-            bc.groupSpacing = 8
-            bc.bars[0].fillColor = colors.HexColor(color)
-            bc.bars[0].strokeColor = None
-            chart.add(bc)
-            story.append(chart)
         rows = [["Month", amount_label, "Payments"]]
         for m in reversed(shown):
             rows.append([f"{MONTH_NAMES[int(m['key'][5:7]) - 1]} {m['key'][:4]}", money(m["amount"]), m["count"]])
