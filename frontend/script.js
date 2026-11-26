@@ -11,7 +11,11 @@ const isDelayed = (i) => Boolean(i.new_date) || i.status === "delayed";
 const mainStatus = (i) => (i.status === "delayed" ? "pending" : i.status);
 // The one place a payment takes in the pie chart, the bar and the month rows: paid or cancelled first, then delayed.
 const slice = (i) => (mainStatus(i) !== "pending" ? mainStatus(i) : isDelayed(i) ? "delayed" : "pending");
-const rowClass = (i) => ({ paid: "ok", cancelled: "bad", delayed: "warn", pending: "" })[slice(i)];
+// A payment that is only pending but has an amount (Awaiting income, We paid, ...) is not shown as "Pending":
+// its row, its pill and the filters name that amount instead. extraOnly(i) is that amount's kind, or null.
+const extraOnly = (i) => (mainStatus(i) === "pending" && !isDelayed(i) ? Object.values(EXTRA_KINDS).find((kind) => i[kind.field]) || null : null);
+const rowClass = (i) => (extraOnly(i) ? extraOnly(i).cls : ({ paid: "ok", cancelled: "bad", delayed: "warn", pending: "" })[slice(i)]);
+const pillLabel = (i) => (extraOnly(i) ? extraOnly(i).short : STATUS_LABEL[slice(i)]);
 
 // Three amounts that can be added to a payment next to its status. They are typed in, and they are not
 // part of the Total, Paid, Pending, Delayed or Cancelled numbers: each shows only in its own card.
@@ -447,7 +451,7 @@ function renderList(items) {
     const isToday = d === today;
     const rows = g.map((i) => {
       let sub = "";
-      if (mainStatus(i) === "pending" && !isDelayed(i) && i.date < today) sub = "Past due date";
+      if (mainStatus(i) === "pending" && !isDelayed(i) && !extraOnly(i) && i.date < today) sub = "Past due date";
       if (isDelayed(i) && i.new_date) sub = `Delayed to ${fmtDay(i.new_date)}`;
       const btn = (act, label, cls, pressed) =>
         `<button class="btn small ${cls}" data-act="${act}" data-id="${i.id}" type="button" aria-pressed="${pressed}">${pressed ? '<span aria-hidden="true">\u2713 </span>' : ""}${label}</button>`;
@@ -487,7 +491,7 @@ function renderList(items) {
       return `<div class="item ${rowClass(i)}${isToday ? " todayrow" : ""}">` +
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
-        `<span class="pill">${STATUS_LABEL[slice(i)]}</span>` +
+        `<span class="pill">${esc(pillLabel(i))}</span>` +
         (chips ? `<div class="tags">${chips}</div>` : "") +
         `<div class="acts">${acts}</div>${descRow}</div>`;
     }).join("");
@@ -507,7 +511,7 @@ function summarize(items) {
     if (countsInTotal(i)) add(s.total, i); // Total amount: Paid, Delayed and Pending only, and no payment with a balance amount (unless it is Paid)
     add(s.slices[slice(i)], i); // each payment once: this feeds the pie chart and the bar
     if (status === "paid" || status === "cancelled") add(s[status], i);
-    else if (!delayed) add(s.pending, i);
+    else if (!delayed && !extraOnly(i)) add(s.pending, i); // a pending payment that has an amount is not "Pending"
     if (delayed) add(s.delayed, i); // Delayed counts every delayed payment, also one that is Paid or Cancelled as well
     if (status === "pending" && !hasExtra(i)) add(s.to_pay, i); // not paid and not cancelled, delayed or not
     Object.values(EXTRA_KINDS).forEach((kind) => { // typed-in amounts: only in their own card, never in the numbers above
@@ -522,7 +526,7 @@ function matchesStatus(item, wanted) {
   if (!wanted) return true;
   if (EXTRA_KINDS[wanted]) return Boolean(item[EXTRA_KINDS[wanted].field]);
   if (wanted === "delayed") return isDelayed(item);
-  if (wanted === "pending") return mainStatus(item) === "pending" && !isDelayed(item);
+  if (wanted === "pending") return mainStatus(item) === "pending" && !isDelayed(item) && !extraOnly(item);
   return mainStatus(item) === wanted;
 }
 

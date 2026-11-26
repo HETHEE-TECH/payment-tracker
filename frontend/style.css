@@ -354,3 +354,10 @@ dialog.viewer::backdrop { background: rgba(0, 0, 0, 0.65); }
 .extragrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .extragrid .field label { text-transform: none; letter-spacing: 0; font-size: 0.8rem; }
 .extragrid input { width: 100%; }
+
+/* a pending payment that has only an amount: the row and the pill take the colour of that amount */
+.item.recv { background: var(--recv-bg); border-color: transparent; }
+.item.excess { background: var(--excess-bg); border-color: transparent; }
+.item.recv .sub { color: var(--recv-fg); } .item.excess .sub { color: var(--excess-fg); }
+.item.recv .pill { background: var(--recv-solid); color: var(--recv-pill-fg); }
+.item.excess .pill { background: var(--excess-solid); color: var(--excess-pill-fg); }

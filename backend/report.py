@@ -74,7 +74,7 @@ def matches_status(item: dict, wanted: str) -> bool:
     if wanted == "delayed":
         return is_delayed(item)
     if wanted == "pending":
-        return main_status(item) == "pending" and not is_delayed(item)
+        return main_status(item) == "pending" and not is_delayed(item) and not has_extra(item)
     return main_status(item) == wanted
 
 
@@ -117,7 +117,7 @@ def summarize(items: List[dict]) -> dict:
         add(s["slices"][slice_of(i)], i)
         if status in ("paid", "cancelled"):
             add(s[status], i)
-        elif not is_delayed(i):
+        elif not is_delayed(i) and not has_extra(i):  # a pending payment that has an amount is not "Pending"
             add(s["pending"], i)
         if is_delayed(i):
             add(s["delayed"], i)
