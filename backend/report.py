@@ -114,7 +114,8 @@ def summarize(items: List[dict]) -> dict:
         status = main_status(i)
         if counts_in_total(i):
             add(s["total"], i)
-        add(s["slices"][slice_of(i)], i)
+        if not (slice_of(i) == "pending" and has_extra(i)):  # an amount-only payment is not Pending: it is in its own amount's card
+            add(s["slices"][slice_of(i)], i)
         if status in ("paid", "cancelled"):
             add(s[status], i)
         elif not is_delayed(i) and not has_extra(i):  # a pending payment that has an amount is not "Pending"

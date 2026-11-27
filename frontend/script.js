@@ -505,7 +505,7 @@ function summarize(items) {
     const status = mainStatus(i);
     const delayed = isDelayed(i);
     if (countsInTotal(i)) add(s.total, i); // Total amount: Paid, Delayed and Pending only, and no payment with a balance amount (unless it is Paid)
-    add(s.slices[slice(i)], i); // each payment once: this feeds the pie chart and the bar
+    if (!extraOnly(i)) add(s.slices[slice(i)], i); // each payment once: this feeds the pie chart and the bar (an amount-only payment is not Pending)
     if (status === "paid" || status === "cancelled") add(s[status], i);
     else if (!delayed && !extraOnly(i)) add(s.pending, i); // a pending payment that has an amount is not "Pending"
     if (delayed) add(s.delayed, i); // Delayed counts every delayed payment, also one that is Paid or Cancelled as well
