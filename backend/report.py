@@ -210,7 +210,6 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
     """selected: the payments of the filters. trend_items: the same without the date filters (for the month rows).
     only: a status was chosen, so the report leaves out every status, column and amount that has no payment in it."""
     from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.graphics.charts.piecharts import Pie
     from reportlab.graphics.shapes import Drawing, Rect, String
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -309,24 +308,20 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
     slices = [(name, s["slices"][key]["amount"], STATUS_COLORS[key]) for key, name in STATUSES
               if not only or s["slices"][key]["count"]]
     if base > 0 and not amount_only:
-        story.append(Paragraph("Pie chart", h2))
+        story.append(Paragraph("Total amount: doughnut chart", h2))
+        from reportlab.graphics.charts.doughnut import Doughnut
         drawing = Drawing(180 * mm, 62 * mm)
-        pie = Pie()
+        pie = Doughnut()
         pie.x, pie.y, pie.width, pie.height = 8 * mm, 4 * mm, 54 * mm, 54 * mm
         shown = [d for d in slices if d[1] > 0]
         pie.data = [d[1] for d in shown]
-        pie.labels = [f"{round(d[1] / base * 100)}%" if d[1] / base >= 0.06 else "" for d in shown]  # no label on a thin slice
-        pie.sideLabels = False
-        pie.simpleLabels = False
         pie.slices.strokeColor = colors.white
         pie.slices.strokeWidth = 1
-        pie.slices.fontName = bold
-        pie.slices.fontSize = 8
-        pie.slices.labelRadius = 0.68
         for n, d in enumerate(shown):
             pie.slices[n].fillColor = colors.HexColor(d[2])
-            pie.slices[n].fontColor = colors.white
         drawing.add(pie)
+        drawing.add(String(35 * mm, 33 * mm, money(base), fontName=bold, fontSize=9, textAnchor="middle"))
+        drawing.add(String(35 * mm, 28 * mm, "total", fontName=regular, fontSize=7.5, textAnchor="middle", fillColor=colors.HexColor("#5b6862")))
         for n, (name, amount, color) in enumerate(slices):
             y = 50 * mm - n * 11 * mm
             drawing.add(Rect(78 * mm, y, 4 * mm, 4 * mm, fillColor=colors.HexColor(color), strokeColor=None))
@@ -447,7 +442,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     from reportlab.graphics.charts.barcharts import HorizontalBarChart, VerticalBarChart
     from reportlab.graphics.charts.linecharts import HorizontalLineChart
     from reportlab.graphics.charts.piecharts import Pie
-    from reportlab.graphics.shapes import Circle, Drawing, Line, Rect, String
+    from reportlab.graphics.shapes import Circle, Drawing, Line, Polygon, PolyLine, Rect, String
     from reportlab.graphics.widgets.markers import makeMarker
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -455,6 +450,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    niceish = lambda v: max(1.0, v * 1.15)  # noqa: E731  a little room above the biggest value
     compact = lambda v: (f"{v / 100000:.1f}L" if v >= 100000 else f"{v / 1000:.1f}k" if v >= 1000 else f"{v:.0f}")  # noqa: E731
     name, color, field = option_info(option)
     value = (lambda i: float(i.get(field) or 0)) if field else (lambda i: float(i["amount"]))
@@ -675,37 +671,147 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         legend(d, y - 11 * mm, left=8)
         return d
 
-    # one kind of chart for each option, so the reports do not look the same
-    #   Paid: bars by month · Pending: names ranked · Delayed: pie · Cancelled: line by month · Awaiting income: doughnut
-    #   Awaiting income received: months ranked · We paid: bars by name · Excess paid: lollipop by month · Part paid pending: one share bar
-    KIND = {"paid": "column_month", "pending": "hbar_name", "delayed": "pie", "cancelled": "line_month", "awaiting": "donut",
-            "received": "hbar_month", "we_paid": "column_name", "excess": "lollipop_month", "part_pending": "share"}
-    kind = KIND.get(option, "column_month")
-    TITLES = {"column_month": "month by month", "hbar_name": "ranked by payment name", "pie": "share of each payment name",
-              "line_month": "trend by month", "donut": "share of each payment name", "hbar_month": "ranked by month",
-              "column_name": "amount by payment name", "lollipop_month": "month by month", "share": "split by payment name"}
+    def chart_funnel():
+        """Names from the biggest to the smallest, each as a centred bar that gets narrower, like a funnel."""
+        n = len(parts)
+        row_h = 9 * mm
+        h = n * row_h + 8 * mm
+        d = Drawing(180 * mm, h)
+        top = parts[0]["amount"] or 1
+        cx = 90 * mm
+        for k, p in enumerate(parts):
+            w = max(14 * mm, 150 * mm * p["amount"] / top)
+            y = h - 4 * mm - (k + 1) * row_h + 1 * mm
+            d.add(Rect(cx - w / 2, y, w, row_h - 2 * mm, fillColor=tint, fillOpacity=1 - 0.55 * k / max(1, n - 1) if n > 1 else 1, strokeColor=None))
+            d.add(String(cx, y + 2.2 * mm, f"{short(p['label'], 20)}  {money(p['amount'])}", fontName=bold, fontSize=8, textAnchor="middle",
+                         fillColor=colors.white if k < n * 0.6 or n == 1 else colors.HexColor("#1b2420")))
+        return d
+
+    def chart_area(labels, values):
+        d = Drawing(180 * mm, 62 * mm)
+        x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
+        top = niceish(max(values))
+        n = len(values)
+        pts = [(x0 + w * k / (n - 1), y0 + values[k] / top * h) for k in range(n)]
+        d.add(Polygon([x0, y0] + [c for p in pts for c in p] + [x0 + w, y0], fillColor=tint, fillOpacity=0.35, strokeColor=None))
+        d.add(PolyLine([c for p in pts for c in p], strokeColor=tint, strokeWidth=2.2))
+        d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
+        d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
+        for tick in (0, 0.5, 1):
+            d.add(String(x0 - 2 * mm, y0 + tick * h - 1.2 * mm, indian(top * tick), fontName=regular, fontSize=7, textAnchor="end"))
+        for k, (px, py) in enumerate(pts):
+            d.add(Circle(px, py, 1.5 * mm, fillColor=tint, strokeColor=colors.white))
+            d.add(String(px, y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
+        return d
+
+    def chart_histogram():
+        """How many payments fall in each size range: bars that touch each other."""
+        vals = [value(i) for i in selected if value(i) > 0]
+        lo, hi = min(vals), max(vals)
+        bins = min(6, max(2, len(vals)))
+        step = (hi - lo) / bins or 1
+        counts = [0] * bins
+        for v in vals:
+            counts[min(bins - 1, int((v - lo) / step))] += 1
+        d = Drawing(180 * mm, 62 * mm)
+        x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
+        top = max(counts)
+        bw = w / bins
+        d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
+        for k, c in enumerate(counts):
+            bh = c / top * h
+            d.add(Rect(x0 + k * bw, y0, bw, bh, fillColor=tint, strokeColor=colors.white, strokeWidth=0.8))
+            if c:
+                d.add(String(x0 + k * bw + bw / 2, y0 + bh + 1.5 * mm, str(c), fontName=bold, fontSize=8, textAnchor="middle"))
+            d.add(String(x0 + k * bw, y0 - 4 * mm, compact(lo + k * step), fontName=regular, fontSize=7, textAnchor="middle"))
+        d.add(String(x0 + w, y0 - 4 * mm, compact(hi), fontName=regular, fontSize=7, textAnchor="middle"))
+        d.add(String(x0 - 2 * mm, y0 + h / 2, "count", fontName=regular, fontSize=7, textAnchor="end"))
+        return d
+
+    def chart_scatter():
+        """Every payment as a dot: the date across, the amount up."""
+        pts = sorted((date.fromisoformat(i["date"]).toordinal(), value(i)) for i in selected if value(i) > 0)
+        d = Drawing(180 * mm, 62 * mm)
+        x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
+        xs = [p[0] for p in pts]
+        xmin, xmax = min(xs), max(xs)
+        top = niceish(max(p[1] for p in pts))
+        d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
+        d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
+        for tick in (0, 0.5, 1):
+            d.add(String(x0 - 2 * mm, y0 + tick * h - 1.2 * mm, indian(top * tick), fontName=regular, fontSize=7, textAnchor="end"))
+            if tick:
+                d.add(Line(x0, y0 + tick * h, x0 + w, y0 + tick * h, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
+        span = (xmax - xmin) or 1
+        for ordinal, v in pts:
+            px = x0 + 6 * mm + (w - 12 * mm) * (ordinal - xmin) / span if xmax > xmin else x0 + w / 2
+            d.add(Circle(px, y0 + v / top * h, 2 * mm, fillColor=tint, fillOpacity=0.8, strokeColor=colors.white, strokeWidth=0.8))
+        for ordinal in sorted({xmin, (xmin + xmax) // 2, xmax}):
+            px = x0 + 6 * mm + (w - 12 * mm) * (ordinal - xmin) / span if xmax > xmin else x0 + w / 2
+            d.add(String(px, y0 - 4 * mm, date.fromordinal(ordinal).strftime("%d %b %y"), fontName=regular, fontSize=7, textAnchor="middle"))
+        return d
+
+    def chart_combo(labels, values, counts):
+        """Bars for the amount of each month and a line for how many payments it had."""
+        d = Drawing(180 * mm, 66 * mm)
+        x0, y0, w, h = 24 * mm, 12 * mm, 140 * mm, 44 * mm
+        top = niceish(max(values))
+        ctop = max(counts) + 1
+        n = len(values)
+        step = w / n
+        d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
+        d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
+        for tick in (0, 0.5, 1):
+            d.add(String(x0 - 2 * mm, y0 + tick * h - 1.2 * mm, indian(top * tick), fontName=regular, fontSize=7, textAnchor="end"))
+        pts = []
+        for k, v in enumerate(values):
+            bw = min(step * 0.6, 22 * mm)
+            cx = x0 + step * (k + 0.5)
+            d.add(Rect(cx - bw / 2, y0, bw, v / top * h, fillColor=tint, fillOpacity=0.85, strokeColor=None))
+            d.add(String(cx, y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
+            pts.append((cx, y0 + counts[k] / ctop * h))
+        accent = colors.HexColor("#1b2420")
+        if len(pts) > 1:
+            d.add(PolyLine([c for p in pts for c in p], strokeColor=accent, strokeWidth=1.8))
+        for k, (px, py) in enumerate(pts):
+            d.add(Circle(px, py, 1.6 * mm, fillColor=accent, strokeColor=colors.white))
+            d.add(String(px, py + 2.6 * mm, str(counts[k]), fontName=bold, fontSize=7.5, textAnchor="middle"))
+        d.add(Rect(x0 + w + 4 * mm, y0 + h - 3 * mm, 3 * mm, 3 * mm, fillColor=tint, strokeColor=None))
+        d.add(String(x0 + w + 8.5 * mm, y0 + h - 2.5 * mm, "amount", fontName=regular, fontSize=7))
+        d.add(Circle(x0 + w + 5.5 * mm, y0 + h - 8 * mm, 1.3 * mm, fillColor=accent, strokeColor=None))
+        d.add(String(x0 + w + 8.5 * mm, y0 + h - 9 * mm, "payments", fontName=regular, fontSize=7))
+        return d
+
+    # one kind of chart for each option (chosen by the user)
+    #   Delayed: pie · Paid: bar chart · Cancelled: column chart · Pending: funnel · Awaiting income: line chart
+    #   Awaiting income received: histogram · We paid: area chart · Excess paid: scatter plot · Part paid pending: combo chart
+    KIND = {"paid": "bar", "cancelled": "column", "pending": "funnel", "delayed": "pie", "awaiting": "line",
+            "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "combo"}
+    TITLES = {"bar": "bar chart by month", "column": "column chart by month", "funnel": "funnel by payment name",
+              "pie": "pie chart by payment name", "line": "line chart by month", "histogram": "histogram of payment sizes",
+              "area": "area chart by month", "scatter": "scatter plot of every payment", "combo": "combo chart by month"}
+    kind = KIND.get(option, "column")
     if total > 0 and parts:
-        month_kind = kind.endswith("_month")
-        if month_kind and not shown:
-            kind = "pie"
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
-        if kind == "pie" or kind == "donut":
-            story.append(chart_pie(kind == "donut"))
-        elif kind == "share":
-            story.append(chart_share_bar())
-        elif kind == "hbar_name":
-            story.append(chart_hbar([p["label"] for p in parts], [p["amount"] for p in parts]))
-        elif kind == "column_name":
-            story.append(chart_column([short(p["label"], 12) for p in parts], [p["amount"] for p in parts]))
-        elif kind == "hbar_month":
-            order = sorted(range(len(shown)), key=lambda n: -month_values[n])
-            story.append(chart_hbar([month_labels[n] for n in order], [month_values[n] for n in order]))
-        elif kind == "line_month":
-            story.append(chart_line(month_labels, month_values) if len(shown) >= 2 else chart_lollipop(month_labels, month_values))
-        elif kind == "lollipop_month":
-            story.append(chart_lollipop(month_labels, month_values))
-        else:
+        one_month = len(shown) < 2
+        if kind == "pie":
+            story.append(chart_pie(False))
+        elif kind == "bar":
+            story.append(chart_hbar(month_labels, month_values))
+        elif kind == "column":
             story.append(chart_column(month_labels, month_values))
+        elif kind == "funnel":
+            story.append(chart_funnel())
+        elif kind == "line":
+            story.append(chart_line(month_labels, month_values) if not one_month else chart_column(month_labels, month_values))
+        elif kind == "histogram":
+            story.append(chart_histogram())
+        elif kind == "area":
+            story.append(chart_area(month_labels, month_values) if not one_month else chart_column(month_labels, month_values))
+        elif kind == "scatter":
+            story.append(chart_scatter())
+        else:
+            story.append(chart_combo(month_labels, month_values, [m["count"] for m in shown]))
 
     # month by month table: only this option
     if rows_m:
