@@ -454,7 +454,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     compact = lambda v: (f"{v / 100000:.1f}L" if v >= 100000 else f"{v / 1000:.1f}k" if v >= 1000 else f"{v:.0f}")  # noqa: E731
     name, color, field = option_info(option)
     value = (lambda i: float(i.get(field) or 0)) if field else (lambda i: float(i["amount"]))
-    amount_label = f"{name} amount" if not field else f"{name} (typed-in amount)"
+    amount_label = f"{name} amount" if not field else name
 
     regular, bold, rupee = _fonts()
     money = lambda n: rupee + indian(n)  # noqa: E731
@@ -836,7 +836,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     # the payments of this option
     story.append(Paragraph(f"Payments ({len(selected)})", h2))
     if selected:
-        head = ["Date", "Name", "Amount", "Typed-in" if field else "Status", "Details"]
+        head = ["Date", "Name", name, "Details"] if field else ["Date", "Name", "Amount", "Status", "Details"]
         rows, tints = [head], []
         for i in selected:
             notes = []
@@ -847,11 +847,13 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
                 notes.append(i["description"])
             if is_delayed(i) and i.get("new_date"):
                 notes.insert(0, f"Delayed to {date.fromisoformat(i['new_date']).strftime('%d %b %Y')}")
-            fourth = money(value(i)) if field else name
-            rows.append([date.fromisoformat(i["date"]).strftime("%d %b %Y"), para(i["name"]), para(money(i["amount"]), right),
-                         para(fourth, right if field else cell), para(" · ".join(notes))])
+            day = date.fromisoformat(i["date"]).strftime("%d %b %Y")
+            if field:  # an optional amount: one column named after the option, with that amount
+                rows.append([day, para(i["name"]), para(money(value(i)), right), para(" · ".join(notes))])
+            else:
+                rows.append([day, para(i["name"]), para(money(i["amount"]), right), para(name), para(" · ".join(notes))])
             tints.append(ROW_TINTS.get(option) if not field else None)
-        story.append(table(rows, [22 * mm, 40 * mm, 25 * mm, 30 * mm, 63 * mm], tints=tints))
+        story.append(table(rows, [24 * mm, 50 * mm, 36 * mm, 70 * mm] if field else [22 * mm, 40 * mm, 25 * mm, 30 * mm, 63 * mm], tints=tints))
     else:
         story.append(Paragraph("No payments for these filters.", text))
 
@@ -859,7 +861,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         canvas.saveState()
         canvas.setFont(regular, 7.5)
         canvas.setFillColor(colors.HexColor("#5b6862"))
-        canvas.drawString(15 * mm, 9 * mm, f"{name} report · {scope}")
+        canvas.drawString(15 * mm, 9 * mm, f"{name} report \u00b7 {scope}")
         canvas.drawRightString(A4[0] - 15 * mm, 9 * mm, f"Page {doc.page}")
         canvas.restoreState()
 
