@@ -837,7 +837,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     # one kind of chart for each option (chosen by the user)
     #   Delayed: pie · Paid: bar chart · Cancelled: column chart · Pending: funnel · Awaiting income: line chart
     #   Awaiting income received: histogram · We paid: area chart · Excess paid: scatter plot · Part paid pending: combo chart
-    KIND = {"paid": "bar", "cancelled": "column", "pending": "funnel", "delayed": "pie", "awaiting": "line",
+    KIND = {"paid": "bar", "cancelled": "column", "pending": "funnel", "delayed": "column", "awaiting": "line",
             "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "combo"}
     TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
               "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
