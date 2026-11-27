@@ -468,9 +468,6 @@ function renderList(items) {
         `<span class="grp" role="group" aria-label="Also add an amount">${Object.keys(EXTRA_KINDS).map(extraBtn).join("")}</span>` +
         `<button class="btn small" data-act="edit" data-id="${i.id}" type="button">Edit</button>` +
         `<button class="btn small" data-act="remove" data-id="${i.id}" type="button">Remove</button>`;
-      const chips = (isDelayed(i) && mainStatus(i) !== "pending" ? `<span class="chip warn">Delayed</span>` : "") +
-        Object.values(EXTRA_KINDS).filter((kind) => i[kind.field])
-          .map((kind) => `<span class="chip ${kind.cls}">${kind.short} ${money(i[kind.field])}</span>`).join("");
       const images = i.images || [];
       const picker = (label) =>
         `<label class="btn small imgbtn">${label}<input class="visually-hidden" type="file" accept="image/*,application/pdf,.pdf" multiple data-img="${i.id}"></label>`;
@@ -492,7 +489,6 @@ function renderList(items) {
         `<div class="nm">${esc(i.name)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
         `<div class="amt num">${money(i.amount)}</div>` +
         `<span class="pill">${esc(pillLabel(i))}</span>` +
-        (chips ? `<div class="tags">${chips}</div>` : "") +
         `<div class="acts">${acts}</div>${descRow}</div>`;
     }).join("");
     return monthHead + `<div class="group"><div class="ghead"><h2>${esc(fmtDay(d))}${isToday ? ' <span class="tag">Today</span>' : ""}</h2>` +
