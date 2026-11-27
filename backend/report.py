@@ -499,15 +499,9 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     kpi = Table([[
         [Paragraph(escape(amount_label.upper()), tile_lbl), Paragraph(escape(money(total)), tile_big),
          Paragraph(f"{count_n} {'payment' if count_n == 1 else 'payments'}", tile_lbl)],
-        [Paragraph(escape(money(avg)), tile_val), Paragraph("Average per payment", tile_cap)],
-        [Paragraph(escape(money(value(biggest))) if biggest else "-", tile_val),
-         Paragraph(escape("Biggest · " + short(biggest["name"])) if biggest else "Biggest", tile_cap)],
-        [Paragraph(escape(date.fromisoformat(max(i["date"] for i in selected)).strftime("%d %b %Y")) if selected else "-", tile_val),
-         Paragraph("Latest payment", tile_cap)],
-    ]], colWidths=[66 * mm, 38 * mm, 40 * mm, 36 * mm])
+    ]], colWidths=[180 * mm])
     kpi.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, 0), tint), ("BOX", (0, 0), (-1, -1), 0.6, tint),
-        ("BACKGROUND", (1, 0), (-1, 0), colors.HexColor("#f4f7f5")), ("LINEAFTER", (1, 0), (2, 0), 0.4, line),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 9), ("TOPPADDING", (0, 0), (-1, -1), 9),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
