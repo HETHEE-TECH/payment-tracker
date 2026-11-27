@@ -541,6 +541,16 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         row["count"] += 1
     rows_m = [months[k] for k in sorted(months)]
     shown = rows_m[-MAX_TREND_MONTHS:]
+    days: Dict[str, float] = {}
+    for i in selected:
+        days[i["date"]] = days.get(i["date"], 0.0) + value(i)
+    day_keys = sorted(days)[-31:]
+    day_labels = [date.fromisoformat(k).strftime("%d %b") for k in day_keys]
+    day_values = [days[k] for k in day_keys]
+    running, cum_values = 0.0, []
+    for v in day_values:
+        running += v
+        cum_values.append(running)
     month_labels = [f"{MONTH_NAMES[int(m['key'][5:7]) - 1][:3]} {m['key'][2:4]}" for m in shown]
     month_values = [m["amount"] for m in shown]
 
@@ -692,6 +702,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
         top = niceish(max(values))
         n = len(values)
+        if n == 1:  # one date: a flat area across the chart
+            values, labels, n = values * 2, [labels[0], ""], 2
         pts = [(x0 + w * k / (n - 1), y0 + values[k] / top * h) for k in range(n)]
         d.add(Polygon([x0, y0] + [c for p in pts for c in p] + [x0 + w, y0], fillColor=tint, fillOpacity=0.35, strokeColor=None))
         d.add(PolyLine([c for p in pts for c in p], strokeColor=tint, strokeWidth=2.2))
@@ -787,9 +799,9 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     #   Awaiting income received: histogram · We paid: area chart · Excess paid: scatter plot · Part paid pending: combo chart
     KIND = {"paid": "bar", "cancelled": "column", "pending": "funnel", "delayed": "pie", "awaiting": "line",
             "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "combo"}
-    TITLES = {"bar": "bar chart by month", "column": "column chart by month", "funnel": "funnel by payment name",
-              "pie": "pie chart by payment name", "line": "line chart by month", "histogram": "histogram of payment sizes",
-              "area": "area chart by month", "scatter": "scatter plot of every payment", "combo": "combo chart by month"}
+    TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
+              "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
+              "area": "area chart, running total by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month"}
     kind = KIND.get(option, "column")
     if total > 0 and parts:
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
@@ -798,16 +810,16 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             story.append(chart_pie(False))
         elif kind == "bar":
             story.append(chart_hbar(month_labels, month_values))
-        elif kind == "column":
-            story.append(chart_column(month_labels, month_values))
+        elif kind == "column":  # by month; with one month, one column for each day
+            story.append(chart_column(month_labels, month_values) if not one_month else chart_column(day_labels, day_values))
         elif kind == "funnel":
             story.append(chart_funnel())
-        elif kind == "line":
-            story.append(chart_line(month_labels, month_values) if not one_month else chart_column(month_labels, month_values))
+        elif kind == "line":  # the amount on each date
+            story.append(chart_line(day_labels, day_values))
         elif kind == "histogram":
             story.append(chart_histogram())
-        elif kind == "area":
-            story.append(chart_area(month_labels, month_values) if not one_month else chart_column(month_labels, month_values))
+        elif kind == "area":  # the running total date by date
+            story.append(chart_area(day_labels, cum_values))
         elif kind == "scatter":
             story.append(chart_scatter())
         else:
