@@ -9,6 +9,7 @@ same numbers as the dashboard for the same filters:
     are listed on their own and are never part of the totals.
 """
 import io
+import math
 import os
 from datetime import date
 from typing import Dict, List, Optional
@@ -454,7 +455,16 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    niceish = lambda v: max(1.0, v * 1.15)  # noqa: E731  a little room above the biggest value
+    def nice_axis(biggest):
+        """A round top for the side axis and round steps (1, 2, 2.5, 5 x 10^n), so the numbers on the left are clean."""
+        biggest = max(float(biggest), 1.0)
+        raw = biggest / 4
+        unit = 10 ** math.floor(math.log10(raw))
+        step = next(m * unit for m in (1, 2, 2.5, 5, 10) if m * unit >= raw)
+        top = math.ceil(biggest / step) * step
+        return top, [step * k for k in range(int(round(top / step)) + 1)]
+
+    niceish = lambda v: nice_axis(v)[0]  # noqa: E731
     compact = lambda v: (f"{v / 100000:.1f}L" if v >= 100000 else f"{v / 1000:.1f}k" if v >= 1000 else f"{v:.0f}")  # noqa: E731
     name, color, field = option_info(option)
     value = (lambda i: float(i.get(field) or 0)) if field else (lambda i: float(i["amount"]))
@@ -740,8 +750,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         d.add(PolyLine([c for p in pts for c in p], strokeColor=tint, strokeWidth=2.2))
         d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
         d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
-        for tick in (0, 0.5, 1):
-            d.add(String(x0 - 2 * mm, y0 + tick * h - 1.2 * mm, indian(top * tick), fontName=regular, fontSize=7, textAnchor="end"))
+        for value_tick in nice_axis(top)[1]:
+            d.add(String(x0 - 2 * mm, y0 + value_tick / top * h - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
         for k, (px, py) in enumerate(pts):
             d.add(Circle(px, py, 1.5 * mm, fillColor=tint, strokeColor=colors.white))
             d.add(String(px, y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
@@ -786,10 +796,11 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         top = niceish(max(p[1] for p in pts))
         d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
         d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
-        for tick in (0, 0.5, 1):
-            d.add(String(x0 - 2 * mm, y0 + tick * h - 1.2 * mm, indian(top * tick), fontName=regular, fontSize=7, textAnchor="end"))
-            if tick:
-                d.add(Line(x0, y0 + tick * h, x0 + w, y0 + tick * h, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
+        for value_tick in nice_axis(top)[1]:
+            ty = y0 + value_tick / top * h
+            d.add(String(x0 - 2 * mm, ty - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
+            if value_tick:
+                d.add(Line(x0, ty, x0 + w, ty, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
         span = (xmax - xmin) or 1
         big_cut = sorted((p[1] for p in pts), reverse=True)[min(9, len(pts) - 1)]
         for ordinal, v in pts:
@@ -812,8 +823,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         step = w / n
         d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
         d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
-        for tick in (0, 0.5, 1):
-            d.add(String(x0 - 2 * mm, y0 + tick * h - 1.2 * mm, indian(top * tick), fontName=regular, fontSize=7, textAnchor="end"))
+        for value_tick in nice_axis(top)[1]:
+            d.add(String(x0 - 2 * mm, y0 + value_tick / top * h - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
         pts = []
         for k, v in enumerate(values):
             bw = min(step * 0.6, 22 * mm)
