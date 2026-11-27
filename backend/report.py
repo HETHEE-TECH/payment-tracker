@@ -629,6 +629,10 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         bc.groupSpacing = 8
         bc.bars[0].fillColor = tint
         bc.bars[0].strokeColor = None
+        bc.barLabelFormat = lambda v: indian(v)  # the amount above each column
+        bc.barLabels.nudge = 7
+        bc.barLabels.fontName = bold
+        bc.barLabels.fontSize = 7
         d.add(bc)
         return d
 
@@ -637,7 +641,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         h = max(40, 14 + n * 9)
         d = Drawing(180 * mm, h * mm)
         bc = HorizontalBarChart()
-        bc.x, bc.y, bc.width, bc.height = 38 * mm, 8 * mm, 128 * mm, (h - 12) * mm
+        bc.x, bc.y, bc.width, bc.height = 38 * mm, 8 * mm, 112 * mm, (h - 12) * mm
         bc.data = [list(reversed(values))]
         bc.categoryAxis.categoryNames = [short(s, 22) for s in reversed(labels)]
         style_axes(bc)
@@ -645,6 +649,11 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         bc.barWidth = 5 * mm
         bc.bars[0].fillColor = tint
         bc.bars[0].strokeColor = None
+        bc.barLabelFormat = lambda v: indian(v)  # the amount at the end of each bar
+        bc.barLabels.nudge = 18
+        bc.barLabels.boxAnchor = "w"
+        bc.barLabels.fontName = bold
+        bc.barLabels.fontSize = 7
         d.add(bc)
         return d
 
@@ -662,6 +671,12 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         lc.lines[0].symbol.size = 6
         lc.joinedLines = 1
         d.add(lc)
+        top_v = max(values) or 1
+        n = len(values)
+        for k, v in enumerate(values):  # the amount at each point
+            px = lc.x + lc.width * (k + 0.5) / n
+            py = lc.y + lc.height * v / top_v * 0.96
+            d.add(String(px, py + 3 * mm, indian(v), fontName=bold, fontSize=7, textAnchor="middle"))
         return d
 
     def chart_lollipop(labels, values):
@@ -728,6 +743,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         for k, (px, py) in enumerate(pts):
             d.add(Circle(px, py, 1.5 * mm, fillColor=tint, strokeColor=colors.white))
             d.add(String(px, y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
+            if labels[k] or n == 2:
+                d.add(String(px, py + 2.6 * mm, indian(values[k]), fontName=bold, fontSize=7, textAnchor="middle"))
         return d
 
     def chart_histogram():
@@ -737,8 +754,11 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         bins = min(6, max(2, len(vals)))
         step = (hi - lo) / bins or 1
         counts = [0] * bins
+        sums = [0.0] * bins
         for v in vals:
-            counts[min(bins - 1, int((v - lo) / step))] += 1
+            b = min(bins - 1, int((v - lo) / step))
+            counts[b] += 1
+            sums[b] += v
         d = Drawing(180 * mm, 62 * mm)
         x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
         top = max(counts)
@@ -748,7 +768,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             bh = c / top * h
             d.add(Rect(x0 + k * bw, y0, bw, bh, fillColor=tint, strokeColor=colors.white, strokeWidth=0.8))
             if c:
-                d.add(String(x0 + k * bw + bw / 2, y0 + bh + 1.5 * mm, str(c), fontName=bold, fontSize=8, textAnchor="middle"))
+                d.add(String(x0 + k * bw + bw / 2, y0 + bh + 1.5 * mm, f"{c} · {indian(sums[k])}", fontName=bold, fontSize=7, textAnchor="middle"))
             d.add(String(x0 + k * bw, y0 - 4 * mm, compact(lo + k * step), fontName=regular, fontSize=7, textAnchor="middle"))
         d.add(String(x0 + w, y0 - 4 * mm, compact(hi), fontName=regular, fontSize=7, textAnchor="middle"))
         d.add(String(x0 - 2 * mm, y0 + h / 2, "count", fontName=regular, fontSize=7, textAnchor="end"))
@@ -769,9 +789,12 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             if tick:
                 d.add(Line(x0, y0 + tick * h, x0 + w, y0 + tick * h, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
         span = (xmax - xmin) or 1
+        big_cut = sorted((p[1] for p in pts), reverse=True)[min(9, len(pts) - 1)]
         for ordinal, v in pts:
             px = x0 + 6 * mm + (w - 12 * mm) * (ordinal - xmin) / span if xmax > xmin else x0 + w / 2
             d.add(Circle(px, y0 + v / top * h, 2 * mm, fillColor=tint, fillOpacity=0.8, strokeColor=colors.white, strokeWidth=0.8))
+            if len(pts) <= 24 or v >= big_cut:  # the amount beside each dot (with many dots, only the biggest)
+                d.add(String(px, y0 + v / top * h + 3 * mm, indian(v), fontName=bold, fontSize=6.5, textAnchor="middle"))
         for ordinal in sorted({xmin, (xmin + xmax) // 2, xmax}):
             px = x0 + 6 * mm + (w - 12 * mm) * (ordinal - xmin) / span if xmax > xmin else x0 + w / 2
             d.add(String(px, y0 - 4 * mm, date.fromordinal(ordinal).strftime("%d %b %y"), fontName=regular, fontSize=7, textAnchor="middle"))
@@ -794,6 +817,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             bw = min(step * 0.6, 22 * mm)
             cx = x0 + step * (k + 0.5)
             d.add(Rect(cx - bw / 2, y0, bw, v / top * h, fillColor=tint, fillOpacity=0.85, strokeColor=None))
+            d.add(String(cx, y0 + v / top * h + 1.5 * mm, indian(v), fontName=bold, fontSize=7, textAnchor="middle"))
             d.add(String(cx, y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
             pts.append((cx, y0 + counts[k] / ctop * h))
         accent = colors.HexColor("#1b2420")
@@ -801,7 +825,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             d.add(PolyLine([c for p in pts for c in p], strokeColor=accent, strokeWidth=1.8))
         for k, (px, py) in enumerate(pts):
             d.add(Circle(px, py, 1.6 * mm, fillColor=accent, strokeColor=colors.white))
-            d.add(String(px, py + 2.6 * mm, str(counts[k]), fontName=bold, fontSize=7.5, textAnchor="middle"))
+            d.add(String(px + 3.5 * mm, py - 1 * mm, str(counts[k]), fontName=bold, fontSize=7.5, textAnchor="start", fillColor=accent))
         d.add(Rect(x0 + w + 4 * mm, y0 + h - 3 * mm, 3 * mm, 3 * mm, fillColor=tint, strokeColor=None))
         d.add(String(x0 + w + 8.5 * mm, y0 + h - 2.5 * mm, "amount", fontName=regular, fontSize=7))
         d.add(Circle(x0 + w + 5.5 * mm, y0 + h - 8 * mm, 1.3 * mm, fillColor=accent, strokeColor=None))
