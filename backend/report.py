@@ -296,7 +296,7 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
                 "A payment that is both Paid and Delayed is in the Paid row and in the Delayed row, so the rows can add up to more than the total.", small)]
 
     # the typed-in amounts
-    rows = [["Amount", "Payments", "Amount"]]
+    rows = [["Status", "Payments", "Amount"]]
     for _key, field, name, _color in EXTRAS:
         if only and not s["extras"][field]["count"]:
             continue
