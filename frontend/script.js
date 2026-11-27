@@ -382,8 +382,11 @@ function monthRows() {
     const key = i.date.slice(0, 7);
     if (!months.has(key)) months.set(key, { key, total: 0, count: 0, paid: 0, pending: 0, delayed: 0, cancelled: 0 });
     const m = months.get(key);
-    m.count++; m[slice(i)] += i.amount;
-    if (mainStatus(i) !== "cancelled") m.total += i.amount; // a cancelled amount is not part of a month's total
+    m.count++;
+    // Same rule as the Total amount card: Paid, Delayed and Pending only, and nothing that has a balance amount (unless it is Paid).
+    // So an amount-only payment (Awaiting income, We paid, ...) is not added to the month, and a cancelled amount is not either.
+    if (countsInTotal(i)) { m[slice(i)] += i.amount; m.total += i.amount; }
+    else if (mainStatus(i) === "cancelled") m.cancelled += i.amount;
   });
   return [...months.values()].sort((a, b) => (a.key < b.key ? -1 : 1));
 }

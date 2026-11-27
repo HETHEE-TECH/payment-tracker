@@ -137,10 +137,12 @@ def month_rows(items: List[dict]) -> List[dict]:
     for i in items:
         key = i["date"][:7]
         row = months.setdefault(key, {"key": key, "total": 0.0, "count": 0, "paid": 0.0, "pending": 0.0, "delayed": 0.0, "cancelled": 0.0})
-        if main_status(i) != "cancelled":  # a cancelled amount is not part of a month's total
-            row["total"] += i["amount"]
         row["count"] += 1
-        row[slice_of(i)] += i["amount"]
+        if counts_in_total(i):  # the same rule as the Total amount: nothing with a balance amount (unless Paid), no Cancelled
+            row["total"] += i["amount"]
+            row[slice_of(i)] += i["amount"]
+        elif main_status(i) == "cancelled":
+            row["cancelled"] += i["amount"]
     return [months[k] for k in sorted(months)]
 
 
