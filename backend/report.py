@@ -442,6 +442,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     from reportlab.graphics.charts.barcharts import HorizontalBarChart, VerticalBarChart
     from reportlab.graphics.charts.linecharts import HorizontalLineChart
     from reportlab.graphics.charts.piecharts import Pie
+    from reportlab.graphics.charts.piecharts import Pie
     from reportlab.graphics.shapes import Circle, Drawing, Line, Polygon, PolyLine, Rect, String
     from reportlab.graphics.widgets.markers import makeMarker
     from reportlab.lib import colors
@@ -565,6 +566,24 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         ch.valueAxis.labelTextFormat = lambda v: indian(v)
 
     def chart_pie(donut):
+        if not donut:  # a plain pie: just the pie and the percentage on each slice, no side list
+            d = Drawing(180 * mm, 88 * mm)
+            pie = Pie()
+            pie.x, pie.y, pie.width, pie.height = 50 * mm, 4 * mm, 80 * mm, 80 * mm
+            pie.data = [p["amount"] for p in parts]
+            pie.labels = [f"{round(p['amount'] / total * 100)}%" if p["amount"] / total >= 0.025 else "" for p in parts]
+            pie.sideLabels = False
+            pie.simpleLabels = False
+            pie.slices.strokeColor = colors.white
+            pie.slices.strokeWidth = 1.2
+            pie.slices.fontName = bold
+            pie.slices.fontSize = 10
+            pie.slices.labelRadius = 0.72
+            for n, hex_color in enumerate(shades):
+                pie.slices[n].fillColor = colors.HexColor(hex_color)
+                pie.slices[n].fontColor = colors.white
+            d.add(pie)
+            return d
         height = max(62, 12 + len(parts) * 11)
         d = Drawing(180 * mm, height * mm)
         if donut:
