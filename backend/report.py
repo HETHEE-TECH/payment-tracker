@@ -287,7 +287,7 @@ def build_report_pdf(selected: List[dict], trend_items: List[dict], scope: str, 
             continue
         rows.append([name, s[key]["count"], money(s[key]["amount"]), pct(s[key]["amount"])])
     if len(rows) > 1:
-        story.append(Paragraph("Status", h2))
+        story.append(Paragraph("All payments status", h2))
         t = table(rows, [60 * mm, 30 * mm, 50 * mm, 40 * mm])
         t.setStyle(TableStyle([("ALIGN", (1, 0), (-1, -1), "RIGHT")]))
         story += [t]
