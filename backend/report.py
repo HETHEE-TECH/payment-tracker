@@ -851,36 +851,34 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         return d
 
     def chart_spark():
-        """A sparkline: a small chart without axes. The amount by date, with the lowest, highest and last point marked."""
-        grey = colors.HexColor("#5b6862")
-        h = 30 * mm
-        d = Drawing(180 * mm, h)
-        y = h - 6 * mm
-
-        def spark_title(text_, y_):
-            d.add(String(4 * mm, y_, text_, fontName=bold, fontSize=9))
-
-        # 1. by date: one line
-        spark_title("By date", y)
-        lx, ly, lw, lh = 40 * mm, y - 17 * mm, 118 * mm, 13 * mm
-        vals = day_values
-        top_v, low_v = max(vals), min(vals)
-        span = (top_v - low_v) or 1
+        """The sparkline drawn as a full graph: axes with round numbers, grid lines, the date under each point and its amount
+        above it; the lowest point is red, the highest green."""
+        grey = colors.HexColor("#9aa5a0")
+        d = Drawing(180 * mm, 66 * mm)
+        x0, y0, w, h = 30 * mm, 12 * mm, 142 * mm, 46 * mm
+        vals, labels = day_values, day_labels
+        top = niceish(max(vals))
         n = len(vals)
-        xs = [lx + (lw * k / (n - 1) if n > 1 else lw / 2) for k in range(n)]
-        ys = [ly + (lh * (v - low_v) / span if top_v != low_v else lh / 2) for v in vals]
+        xs = [x0 + 6 * mm + ((w - 12 * mm) * k / (n - 1) if n > 1 else (w - 12 * mm) / 2) for k in range(n)]
+        ys = [y0 + v / top * h for v in vals]
+        d.add(Line(x0, y0, x0 + w, y0, strokeColor=grey))
+        d.add(Line(x0, y0, x0, y0 + h, strokeColor=grey))
+        for value_tick in nice_axis(top)[1]:
+            ty = y0 + value_tick / top * h
+            d.add(String(x0 - 3 * mm, ty - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
+            if value_tick:
+                d.add(Line(x0, ty, x0 + w, ty, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
         if n > 1:
-            d.add(PolyLine([c for p in zip(xs, ys) for c in p], strokeColor=tint, strokeWidth=1.6))
-        hi, lo = vals.index(top_v), vals.index(low_v)
-        for k, mark in {lo: colors.HexColor("#d6453d"), hi: colors.HexColor("#1f9d5a"), n - 1: tint}.items():
-            d.add(Circle(xs[k], ys[k], 1.4 * mm, fillColor=mark, strokeColor=colors.white))
-        d.add(String(lx - 3 * mm, ly + lh / 2 - 1.2 * mm, day_labels[0], fontName=regular, fontSize=7, textAnchor="end", fillColor=grey))
-        d.add(String(lx + lw + 3 * mm, ly + lh / 2 - 1.2 * mm, f"{day_labels[-1]}  {indian(vals[-1])}", fontName=bold, fontSize=7.5))
-        d.add(String(xs[hi], ys[hi] + 2.2 * mm, f"high {indian(top_v)}", fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=colors.HexColor("#1f9d5a")))
-        if n > 1 and lo != hi:
-            d.add(String(xs[lo], ys[lo] - 4 * mm, f"low {indian(low_v)}", fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=colors.HexColor("#d6453d")))
-        y = ly - 9 * mm
-
+            d.add(PolyLine([c for p in zip(xs, ys) for c in p], strokeColor=tint, strokeWidth=2))
+        hi, lo = vals.index(max(vals)), vals.index(min(vals))
+        every = max(1, math.ceil(n / 8))
+        for k in range(n):
+            mark = colors.HexColor("#1f9d5a") if k == hi else colors.HexColor("#d6453d") if (k == lo and n > 1 and lo != hi) else tint
+            d.add(Circle(xs[k], ys[k], 1.7 * mm, fillColor=mark, strokeColor=colors.white))
+            if k % every == 0 or k == n - 1 or k in (hi, lo):
+                d.add(String(xs[k], ys[k] + 2.8 * mm, indian(vals[k]), fontName=bold, fontSize=7, textAnchor="middle"))
+            if k % every == 0 or k == n - 1:
+                d.add(String(xs[k], y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
         return d
 
     # one kind of chart for each option (chosen by the user)
@@ -890,7 +888,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "spark"}
     TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
               "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
-              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month", "spark": "sparkline by date"}
+              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month", "spark": "graph by date"}
     kind = KIND.get(option, "column")
     if total > 0 and parts:
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
