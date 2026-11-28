@@ -739,23 +739,28 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         return d
 
     def chart_area(labels, values):
-        d = Drawing(180 * mm, 62 * mm)
-        x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
+        d = Drawing(180 * mm, 64 * mm)
+        x0, y0, w, h = 30 * mm, 12 * mm, 142 * mm, 44 * mm
         top = niceish(max(values))
         n = len(values)
         if n == 1:  # one date: a flat area across the chart
             values, labels, n = values * 2, [labels[0], ""], 2
-        pts = [(x0 + w * k / (n - 1), y0 + values[k] / top * h) for k in range(n)]
-        d.add(Polygon([x0, y0] + [c for p in pts for c in p] + [x0 + w, y0], fillColor=tint, fillOpacity=0.35, strokeColor=None))
+        pts = [(x0 + 4 * mm + (w - 8 * mm) * k / (n - 1), y0 + values[k] / top * h) for k in range(n)]
+        grey = colors.HexColor("#9aa5a0")
+        d.add(Polygon([pts[0][0], y0] + [c for p in pts for c in p] + [pts[-1][0], y0], fillColor=tint, fillOpacity=0.35, strokeColor=None))
         d.add(PolyLine([c for p in pts for c in p], strokeColor=tint, strokeWidth=2.2))
-        d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
-        d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
-        for value_tick in nice_axis(top)[1]:
-            d.add(String(x0 - 2 * mm, y0 + value_tick / top * h - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
+        d.add(Line(x0, y0, x0 + w, y0, strokeColor=grey))
+        d.add(Line(x0, y0, x0, y0 + h, strokeColor=grey))
+        for value_tick in nice_axis(top)[1]:  # the numbers on the left, with a clear gap before the axis line
+            ty = y0 + value_tick / top * h
+            d.add(String(x0 - 3 * mm, ty - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
+            if value_tick:
+                d.add(Line(x0, ty, x0 + w, ty, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
+        every = max(1, math.ceil(n / 8))  # not more than about 8 labels, so none of them touch
         for k, (px, py) in enumerate(pts):
             d.add(Circle(px, py, 1.5 * mm, fillColor=tint, strokeColor=colors.white))
-            d.add(String(px, y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
-            if labels[k] or n == 2:
+            if k % every == 0 or k == n - 1:
+                d.add(String(px, y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
                 d.add(String(px, py + 2.6 * mm, indian(values[k]), fontName=bold, fontSize=7, textAnchor="middle"))
         return d
 
@@ -790,7 +795,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         """Every payment as a dot: the date across, the amount up."""
         pts = sorted((date.fromisoformat(i["date"]).toordinal(), value(i)) for i in selected if value(i) > 0)
         d = Drawing(180 * mm, 62 * mm)
-        x0, y0, w, h = 24 * mm, 12 * mm, 148 * mm, 44 * mm
+        x0, y0, w, h = 30 * mm, 12 * mm, 142 * mm, 44 * mm
         xs = [p[0] for p in pts]
         xmin, xmax = min(xs), max(xs)
         top = niceish(max(p[1] for p in pts))
@@ -798,7 +803,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
         for value_tick in nice_axis(top)[1]:
             ty = y0 + value_tick / top * h
-            d.add(String(x0 - 2 * mm, ty - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
+            d.add(String(x0 - 3 * mm, ty - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
             if value_tick:
                 d.add(Line(x0, ty, x0 + w, ty, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
         span = (xmax - xmin) or 1
@@ -816,7 +821,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     def chart_combo(labels, values, counts):
         """Bars for the amount of each month and a line for how many payments it had."""
         d = Drawing(180 * mm, 66 * mm)
-        x0, y0, w, h = 24 * mm, 12 * mm, 140 * mm, 44 * mm
+        x0, y0, w, h = 30 * mm, 12 * mm, 134 * mm, 44 * mm
         top = niceish(max(values))
         ctop = max(counts) + 1
         n = len(values)
@@ -824,7 +829,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         d.add(Line(x0, y0, x0 + w, y0, strokeColor=colors.HexColor("#9aa5a0")))
         d.add(Line(x0, y0, x0, y0 + h, strokeColor=colors.HexColor("#9aa5a0")))
         for value_tick in nice_axis(top)[1]:
-            d.add(String(x0 - 2 * mm, y0 + value_tick / top * h - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
+            d.add(String(x0 - 3 * mm, y0 + value_tick / top * h - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
         pts = []
         for k, v in enumerate(values):
             bw = min(step * 0.6, 22 * mm)
@@ -852,7 +857,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "combo"}
     TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
               "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
-              "area": "area chart, running total by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month"}
+              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month"}
     kind = KIND.get(option, "column")
     if total > 0 and parts:
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
@@ -869,8 +874,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             story.append(chart_line(day_labels, day_values))
         elif kind == "histogram":
             story.append(chart_histogram())
-        elif kind == "area":  # the running total date by date
-            story.append(chart_area(day_labels, cum_values))
+        elif kind == "area":  # the amount paid on each date
+            story.append(chart_area(day_labels, day_values))
         elif kind == "scatter":
             story.append(chart_scatter())
         else:
