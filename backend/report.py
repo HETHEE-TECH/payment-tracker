@@ -890,14 +890,40 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
                 d.add(String(xs[k], y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
         return d
 
+    def chart_radar():
+        """One spoke for each payment name (the biggest 7 and Others); the further from the centre, the bigger the amount."""
+        grey = colors.HexColor("#c9d1cd")
+        d = Drawing(180 * mm, 92 * mm)
+        cx, cy, radius = 90 * mm, 46 * mm, 36 * mm
+        n = len(parts)
+        top, ticks = nice_axis(max(p["amount"] for p in parts))
+        point = lambda k, r: (cx + r * math.sin(2 * math.pi * k / n), cy + r * math.cos(2 * math.pi * k / n))  # noqa: E731
+        for t in ticks[1:]:  # the rings, with their amount on the first spoke
+            r = radius * t / top
+            d.add(Polygon([c for k in range(n) for c in point(k, r)], fillColor=None, strokeColor=grey, strokeWidth=0.6))
+            gx, gy = point(0.5, r)  # between the first two spokes, so it does not touch a label
+            d.add(String(gx, gy, indian(t), fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=colors.HexColor("#5b6862")))
+        for k in range(n):
+            d.add(Line(cx, cy, *point(k, radius), strokeColor=grey, strokeWidth=0.6))
+        pts = [point(k, radius * p["amount"] / top) for k, p in enumerate(parts)]
+        d.add(Polygon([c for p in pts for c in p], fillColor=tint, fillOpacity=0.3, strokeColor=tint, strokeWidth=2))
+        for k, p in enumerate(parts):
+            d.add(Circle(pts[k][0], pts[k][1], 1.6 * mm, fillColor=tint, strokeColor=colors.white))
+            lx, ly = point(k, radius + 6 * mm)
+            anchor = "middle" if abs(lx - cx) < 2 * mm else "start" if lx > cx else "end"
+            d.add(String(lx, ly - 0.5 * mm, short(p["label"], 16), fontName=bold, fontSize=8, textAnchor=anchor))
+            vx, vy = point(k, radius * p["amount"] / top + 4.5 * mm)
+            d.add(String(vx, vy - 1 * mm, indian(p["amount"]), fontName=regular, fontSize=7, textAnchor="middle"))
+        return d
+
     # one kind of chart for each option (chosen by the user)
     #   Delayed: pie · Paid: bar chart · Cancelled: column chart · Pending: funnel · Awaiting income: line chart
     #   Awaiting income received: histogram · We paid: area chart · Excess paid: scatter plot · Part paid pending: combo chart
     KIND = {"paid": "bar", "cancelled": "column", "pending": "funnel", "delayed": "column", "awaiting": "line",
-            "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "spark"}
+            "received": "histogram", "we_paid": "area", "excess": "radar", "part_pending": "spark"}
     TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
               "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
-              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month", "spark": "graph by date"}
+              "area": "area chart by date", "scatter": "scatter plot of every payment", "radar": "radar chart by payment name", "combo": "combo chart by month", "spark": "graph by date"}
     kind = KIND.get(option, "column")
     if total > 0 and parts:
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
@@ -918,6 +944,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             story.append(chart_histogram())
         elif kind == "area":  # the amount paid on each date
             story.append(chart_area(day_labels, day_values))
+        elif kind == "radar":
+            story.append(chart_radar() if len(parts) >= 3 else chart_scatter())  # a radar needs at least 3 names
         elif kind == "scatter":
             story.append(chart_scatter())
         else:
