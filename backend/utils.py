@@ -18,9 +18,9 @@ AMOUNT_CELL_RE = re.compile(r"^(?:₹|Rs\.?|INR)?\s*\d[\d,]*(?:\.\d+)?$", re.IGN
 
 
 def parse_date(text: str) -> Optional[str]:
-    """Accepts 2026-11-05, 05-11-2026, 05/11/2026, 05.11.2026. Returns YYYY-MM-DD or None."""
+    """Accepts 2026-11-05, 05-11-2026, 05/11/2026, 05.11.2026, and a 2-digit year: 05.11.26. Returns YYYY-MM-DD or None."""
     text = (text or "").strip()
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y"):
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%d-%m-%y", "%d/%m/%y", "%d.%m.%y"):
         try:
             return datetime.strptime(text, fmt).date().isoformat()
         except ValueError:
@@ -126,6 +126,14 @@ def rows_to_payments(rows) -> Tuple[List[Payment], int]:
     desc_col = None
     if has_header:
         desc_col = next((i for i, c in enumerate(first) if c.strip().lower() in DESCRIPTION_HEADERS), None)
+    if desc_col is None:  # a title line above the header line ("DECEMBER PAYMENT LIST", then Name / Amount / Date / Description)
+        for r in [r for r in all_rows if any(r)][:6]:
+            if any(parse_date(c) or AMOUNT_CELL_RE.match(c) for c in r if c):
+                continue
+            hit = next((i for i, c in enumerate(r) if c.strip().lower() in DESCRIPTION_HEADERS), None)
+            if hit is not None:
+                has_header, desc_col = True, hit
+                break
     for texts in all_rows:
         description = ""
         if desc_col is not None and desc_col < len(texts):
