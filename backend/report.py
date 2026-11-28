@@ -850,14 +850,70 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         d.add(String(x0 + w + 8.5 * mm, y0 + h - 9 * mm, "payments", fontName=regular, fontSize=7))
         return d
 
+    def chart_spark():
+        """Sparklines: small charts without axes. The amount by date (line, with the lowest, highest and last point marked),
+        the amount by month (tiny columns) and, for each payment name, a small bar with its amount."""
+        grey = colors.HexColor("#5b6862")
+        rows_n = len(parts)
+        h = (78 + rows_n * 7) * mm
+        d = Drawing(180 * mm, h)
+        y = h - 6 * mm
+
+        def spark_title(text_, y_):
+            d.add(String(4 * mm, y_, text_, fontName=bold, fontSize=9))
+
+        # 1. by date: one line
+        spark_title("By date", y)
+        lx, ly, lw, lh = 40 * mm, y - 17 * mm, 118 * mm, 13 * mm
+        vals = day_values
+        top_v, low_v = max(vals), min(vals)
+        span = (top_v - low_v) or 1
+        n = len(vals)
+        xs = [lx + (lw * k / (n - 1) if n > 1 else lw / 2) for k in range(n)]
+        ys = [ly + (lh * (v - low_v) / span if top_v != low_v else lh / 2) for v in vals]
+        if n > 1:
+            d.add(PolyLine([c for p in zip(xs, ys) for c in p], strokeColor=tint, strokeWidth=1.6))
+        hi, lo = vals.index(top_v), vals.index(low_v)
+        for k, mark in {lo: colors.HexColor("#d6453d"), hi: colors.HexColor("#1f9d5a"), n - 1: tint}.items():
+            d.add(Circle(xs[k], ys[k], 1.4 * mm, fillColor=mark, strokeColor=colors.white))
+        d.add(String(lx - 3 * mm, ly + lh / 2 - 1.2 * mm, day_labels[0], fontName=regular, fontSize=7, textAnchor="end", fillColor=grey))
+        d.add(String(lx + lw + 3 * mm, ly + lh / 2 - 1.2 * mm, f"{day_labels[-1]}  {indian(vals[-1])}", fontName=bold, fontSize=7.5))
+        d.add(String(xs[hi], ys[hi] + 2.2 * mm, f"high {indian(top_v)}", fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=colors.HexColor("#1f9d5a")))
+        if n > 1 and lo != hi:
+            d.add(String(xs[lo], ys[lo] - 4 * mm, f"low {indian(low_v)}", fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=colors.HexColor("#d6453d")))
+        y = ly - 9 * mm
+
+        # 2. by month: tiny columns
+        spark_title("By month", y)
+        mx, my, mw, mh = 40 * mm, y - 17 * mm, 118 * mm, 13 * mm
+        mtop = max(month_values) or 1
+        step = min(14 * mm, mw / len(month_values))
+        for k, v in enumerate(month_values):
+            bx = mx + k * step
+            d.add(Rect(bx, my, step * 0.7, max(0.8 * mm, mh * v / mtop), fillColor=tint, strokeColor=None))
+            d.add(String(bx + step * 0.35, my - 3.4 * mm, month_labels[k], fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=grey))
+            d.add(String(bx + step * 0.35, my + max(0.8 * mm, mh * v / mtop) + 1.2 * mm, indian(v), fontName=bold, fontSize=6.5, textAnchor="middle"))
+        y = my - 11 * mm
+
+        # 3. each payment name: a small bar and its amount
+        spark_title("By payment name", y)
+        y -= 4 * mm
+        ntop = parts[0]["amount"] or 1
+        for p in parts:
+            y -= 7 * mm
+            d.add(String(4 * mm, y + 1 * mm, short(p["label"], 22), fontName=regular, fontSize=8))
+            d.add(Rect(40 * mm, y, max(1 * mm, 100 * mm * p["amount"] / ntop), 4 * mm, fillColor=tint, strokeColor=None))
+            d.add(String(142 * mm, y + 1 * mm, indian(p["amount"]), fontName=bold, fontSize=8))
+        return d
+
     # one kind of chart for each option (chosen by the user)
     #   Delayed: pie · Paid: bar chart · Cancelled: column chart · Pending: funnel · Awaiting income: line chart
     #   Awaiting income received: histogram · We paid: area chart · Excess paid: scatter plot · Part paid pending: combo chart
     KIND = {"paid": "bar", "cancelled": "column", "pending": "funnel", "delayed": "column", "awaiting": "line",
-            "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "combo"}
+            "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "spark"}
     TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
               "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
-              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month"}
+              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month", "spark": "sparklines"}
     kind = KIND.get(option, "column")
     if total > 0 and parts:
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
@@ -868,6 +924,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             story.append(chart_hbar(month_labels, month_values))
         elif kind == "column":  # by month; with one month, one column for each day
             story.append(chart_column(month_labels, month_values) if not one_month else chart_column(day_labels, day_values))
+        elif kind == "spark":
+            story.append(chart_spark())
         elif kind == "funnel":
             story.append(chart_funnel())
         elif kind == "line":  # the amount on each date
