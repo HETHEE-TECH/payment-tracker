@@ -857,16 +857,25 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         d = Drawing(180 * mm, 66 * mm)
         x0, y0, w, h = 30 * mm, 12 * mm, 142 * mm, 46 * mm
         vals, labels = day_values, day_labels
-        top = niceish(max(vals))
+        lo_v, hi_v = min(vals), max(vals)
+        if hi_v == lo_v:  # all the same amount: a little room above and below it
+            lo_v, hi_v = lo_v * 0.8, hi_v * 1.2 or 1
+        raw = (hi_v - lo_v) / 4
+        unit = 10 ** math.floor(math.log10(raw))
+        step = next(m * unit for m in (1, 2, 2.5, 5, 10) if m * unit >= raw)
+        base = max(0.0, math.floor((lo_v - (hi_v - lo_v) * 0.1) / step) * step)  # the axis starts just under the smallest payment
+        top = math.ceil(hi_v / step) * step
+        ticks = [base + step * k for k in range(int(round((top - base) / step)) + 1)]
+        at = lambda v: y0 + (v - base) / (top - base) * h  # noqa: E731  the same scale for the numbers and the points
         n = len(vals)
         xs = [x0 + 6 * mm + ((w - 12 * mm) * k / (n - 1) if n > 1 else (w - 12 * mm) / 2) for k in range(n)]
-        ys = [y0 + v / top * h for v in vals]
+        ys = [at(v) for v in vals]
         d.add(Line(x0, y0, x0 + w, y0, strokeColor=grey))
         d.add(Line(x0, y0, x0, y0 + h, strokeColor=grey))
-        for value_tick in nice_axis(top)[1]:
-            ty = y0 + value_tick / top * h
+        for value_tick in ticks:
+            ty = at(value_tick)
             d.add(String(x0 - 3 * mm, ty - 1.2 * mm, indian(value_tick), fontName=regular, fontSize=7, textAnchor="end"))
-            if value_tick:
+            if value_tick != base:
                 d.add(Line(x0, ty, x0 + w, ty, strokeColor=colors.HexColor("#e1e7e4"), strokeWidth=0.5))
         if n > 1:
             d.add(PolyLine([c for p in zip(xs, ys) for c in p], strokeColor=tint, strokeWidth=2))
