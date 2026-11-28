@@ -890,11 +890,16 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
                 d.add(String(xs[k], y0 - 4 * mm, labels[k], fontName=regular, fontSize=7, textAnchor="middle"))
         return d
 
+    globals_parts = parts
+
     def chart_radar():
         """One spoke for each payment name (the biggest 7 and Others); the further from the centre, the bigger the amount."""
         grey = colors.HexColor("#c9d1cd")
         d = Drawing(180 * mm, 92 * mm)
         cx, cy, radius = 90 * mm, 46 * mm, 36 * mm
+        parts = list(globals_parts)
+        while len(parts) < 3:  # a radar needs at least 3 spokes: with fewer names, empty spokes are added
+            parts.append({"label": "", "amount": 0.0, "count": 0})
         n = len(parts)
         top, ticks = nice_axis(max(p["amount"] for p in parts))
         point = lambda k, r: (cx + r * math.sin(2 * math.pi * k / n), cy + r * math.cos(2 * math.pi * k / n))  # noqa: E731
@@ -908,12 +913,14 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         pts = [point(k, radius * p["amount"] / top) for k, p in enumerate(parts)]
         d.add(Polygon([c for p in pts for c in p], fillColor=tint, fillOpacity=0.3, strokeColor=tint, strokeWidth=2))
         for k, p in enumerate(parts):
-            d.add(Circle(pts[k][0], pts[k][1], 1.6 * mm, fillColor=tint, strokeColor=colors.white))
+            if p["amount"]:
+                d.add(Circle(pts[k][0], pts[k][1], 1.6 * mm, fillColor=tint, strokeColor=colors.white))
             lx, ly = point(k, radius + 6 * mm)
             anchor = "middle" if abs(lx - cx) < 2 * mm else "start" if lx > cx else "end"
             d.add(String(lx, ly - 0.5 * mm, short(p["label"], 16), fontName=bold, fontSize=8, textAnchor=anchor))
-            vx, vy = point(k, radius * p["amount"] / top + 4.5 * mm)
-            d.add(String(vx, vy - 1 * mm, indian(p["amount"]), fontName=regular, fontSize=7, textAnchor="middle"))
+            if p["amount"]:
+                vx, vy = point(k, radius * p["amount"] / top + 4.5 * mm)
+                d.add(String(vx, vy - 1 * mm, indian(p["amount"]), fontName=regular, fontSize=7, textAnchor="middle"))
         return d
 
     # one kind of chart for each option (chosen by the user)
@@ -945,7 +952,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         elif kind == "area":  # the amount paid on each date
             story.append(chart_area(day_labels, day_values))
         elif kind == "radar":
-            story.append(chart_radar() if len(parts) >= 3 else chart_scatter())  # a radar needs at least 3 names
+            story.append(chart_radar())
         elif kind == "scatter":
             story.append(chart_scatter())
         else:
