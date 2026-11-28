@@ -923,14 +923,50 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
                 d.add(String(vx, vy - 1 * mm, indian(p["amount"]), fontName=regular, fontSize=7, textAnchor="middle"))
         return d
 
+    def chart_column3d():
+        """3-D columns: a front face, a darker side and a lighter top, one for each payment name (the biggest 7 and Others)."""
+        def shade(hex_color, factor):
+            c = colors.HexColor(hex_color)
+            return colors.Color(min(1, c.red * factor), min(1, c.green * factor), min(1, c.blue * factor))
+
+        grey = colors.HexColor("#9aa5a0")
+        d = Drawing(180 * mm, 70 * mm)
+        x0, y0, w, h = 30 * mm, 14 * mm, 138 * mm, 44 * mm
+        dx, dy = 3.5 * mm, 2.5 * mm  # how deep the 3-D looks
+        top, ticks = nice_axis(max(p["amount"] for p in parts))
+        n = len(parts)
+        # the back wall and the floor
+        d.add(Polygon([x0 + dx, y0 + dy, x0 + dx + w, y0 + dy, x0 + dx + w, y0 + dy + h, x0 + dx, y0 + dy + h],
+                      fillColor=colors.HexColor("#f4f7f5"), strokeColor=None))
+        d.add(Polygon([x0, y0, x0 + w, y0, x0 + w + dx, y0 + dy, x0 + dx, y0 + dy], fillColor=colors.HexColor("#e1e7e4"), strokeColor=grey, strokeWidth=0.5))
+        for t in ticks:
+            ty = y0 + t / top * h
+            d.add(String(x0 - 3 * mm, ty - 1.2 * mm, indian(t), fontName=regular, fontSize=7, textAnchor="end"))
+            if t:
+                d.add(Line(x0 + dx, ty + dy, x0 + dx + w, ty + dy, strokeColor=colors.HexColor("#d4dcd8"), strokeWidth=0.5))
+        d.add(Line(x0 + dx, y0 + dy, x0 + dx, y0 + dy + h, strokeColor=grey, strokeWidth=0.5))
+        slot = w / n
+        bw = min(slot * 0.55, 22 * mm)
+        for k, p in enumerate(parts):
+            bx = x0 + slot * k + (slot - bw) / 2
+            bh = max(0.8 * mm, p["amount"] / top * h)
+            d.add(Rect(bx, y0, bw, bh, fillColor=tint, strokeColor=None))
+            d.add(Polygon([bx + bw, y0, bx + bw + dx, y0 + dy, bx + bw + dx, y0 + dy + bh, bx + bw, y0 + bh],
+                          fillColor=shade(color, 0.7), strokeColor=None))
+            d.add(Polygon([bx, y0 + bh, bx + bw, y0 + bh, bx + bw + dx, y0 + bh + dy, bx + dx, y0 + bh + dy],
+                          fillColor=shade(color, 1.25), strokeColor=None))
+            d.add(String(bx + bw / 2 + dx / 2, y0 + bh + dy + 1.5 * mm, indian(p["amount"]), fontName=bold, fontSize=7.5, textAnchor="middle"))
+            d.add(String(bx + bw / 2, y0 - 4.5 * mm, short(p["label"], 14), fontName=regular, fontSize=7.5, textAnchor="middle"))
+        return d
+
     # one kind of chart for each option (chosen by the user)
     #   Delayed: pie · Paid: bar chart · Cancelled: column chart · Pending: funnel · Awaiting income: line chart
     #   Awaiting income received: histogram · We paid: area chart · Excess paid: scatter plot · Part paid pending: combo chart
     KIND = {"paid": "bar", "cancelled": "column", "pending": "funnel", "delayed": "column", "awaiting": "line",
-            "received": "histogram", "we_paid": "area", "excess": "radar", "part_pending": "spark"}
+            "received": "histogram", "we_paid": "area", "excess": "column3d", "part_pending": "spark"}
     TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
               "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
-              "area": "area chart by date", "scatter": "scatter plot of every payment", "radar": "radar chart by payment name", "combo": "combo chart by month", "spark": "graph by date"}
+              "area": "area chart by date", "scatter": "scatter plot of every payment", "radar": "radar chart by payment name", "column3d": "3-D column chart by payment name", "combo": "combo chart by month", "spark": "graph by date"}
     kind = KIND.get(option, "column")
     if total > 0 and parts:
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
@@ -951,6 +987,8 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             story.append(chart_histogram())
         elif kind == "area":  # the amount paid on each date
             story.append(chart_area(day_labels, day_values))
+        elif kind == "column3d":
+            story.append(chart_column3d())
         elif kind == "radar":
             story.append(chart_radar())
         elif kind == "scatter":
