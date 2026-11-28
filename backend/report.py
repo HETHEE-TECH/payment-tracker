@@ -542,8 +542,9 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
     shades = [OPTION_PALETTE[n % len(OPTION_PALETTE)] for n in range(len(parts))]
     if rest:
         shades[-1] = OTHERS_COLOR
+    # only the months of the chosen filters (a chosen month or year is not mixed with other months)
     months: Dict[str, dict] = {}
-    for i in trend_items:
+    for i in selected:
         row = months.setdefault(i["date"][:7], {"key": i["date"][:7], "amount": 0.0, "count": 0})
         row["amount"] += value(i)
         row["count"] += 1
