@@ -851,11 +851,9 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
         return d
 
     def chart_spark():
-        """Sparklines: small charts without axes. The amount by date (line, with the lowest, highest and last point marked),
-        the amount by month (tiny columns) and, for each payment name, a small bar with its amount."""
+        """A sparkline: a small chart without axes. The amount by date, with the lowest, highest and last point marked."""
         grey = colors.HexColor("#5b6862")
-        rows_n = len(parts)
-        h = (78 + rows_n * 7) * mm
+        h = 30 * mm
         d = Drawing(180 * mm, h)
         y = h - 6 * mm
 
@@ -883,27 +881,6 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             d.add(String(xs[lo], ys[lo] - 4 * mm, f"low {indian(low_v)}", fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=colors.HexColor("#d6453d")))
         y = ly - 9 * mm
 
-        # 2. by month: tiny columns
-        spark_title("By month", y)
-        mx, my, mw, mh = 40 * mm, y - 17 * mm, 118 * mm, 13 * mm
-        mtop = max(month_values) or 1
-        step = min(14 * mm, mw / len(month_values))
-        for k, v in enumerate(month_values):
-            bx = mx + k * step
-            d.add(Rect(bx, my, step * 0.7, max(0.8 * mm, mh * v / mtop), fillColor=tint, strokeColor=None))
-            d.add(String(bx + step * 0.35, my - 3.4 * mm, month_labels[k], fontName=regular, fontSize=6.5, textAnchor="middle", fillColor=grey))
-            d.add(String(bx + step * 0.35, my + max(0.8 * mm, mh * v / mtop) + 1.2 * mm, indian(v), fontName=bold, fontSize=6.5, textAnchor="middle"))
-        y = my - 11 * mm
-
-        # 3. each payment name: a small bar and its amount
-        spark_title("By payment name", y)
-        y -= 4 * mm
-        ntop = parts[0]["amount"] or 1
-        for p in parts:
-            y -= 7 * mm
-            d.add(String(4 * mm, y + 1 * mm, short(p["label"], 22), fontName=regular, fontSize=8))
-            d.add(Rect(40 * mm, y, max(1 * mm, 100 * mm * p["amount"] / ntop), 4 * mm, fillColor=tint, strokeColor=None))
-            d.add(String(142 * mm, y + 1 * mm, indian(p["amount"]), fontName=bold, fontSize=8))
         return d
 
     # one kind of chart for each option (chosen by the user)
@@ -913,7 +890,7 @@ def build_option_report_pdf(selected: List[dict], trend_items: List[dict], optio
             "received": "histogram", "we_paid": "area", "excess": "scatter", "part_pending": "spark"}
     TITLES = {"bar": "bar chart by month", "column": "column chart", "funnel": "funnel by payment name",
               "pie": "pie chart by payment name", "line": "line chart by date", "histogram": "histogram of payment sizes",
-              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month", "spark": "sparklines"}
+              "area": "area chart by date", "scatter": "scatter plot of every payment", "combo": "combo chart by month", "spark": "sparkline by date"}
     kind = KIND.get(option, "column")
     if total > 0 and parts:
         story.append(Paragraph(escape(f"{name}: {TITLES[kind]}"), h2))
